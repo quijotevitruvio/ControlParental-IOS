@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import UIKit
 import CoreLocation
 import Combine
 
@@ -42,7 +43,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func openSettings() {
         if let url = URL(string: UIApplication.openSettingsURLString) {
             DispatchQueue.main.async {
-                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                UIApplication.shared.open(url)
             }
         }
     }
