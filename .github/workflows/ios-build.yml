@@ -19,58 +19,38 @@ jobs:
         with:
           xcode-version: '15.4'
 
-      - name: Show Xcode & Swift version
+      - name: Install XcodeGen
         run: |
-          xcodebuild -version
-          swift --version
+          brew install xcodegen
 
-      - name: Build for iOS
+      - name: Generate Xcode Project
         run: |
-          echo "=== Compiling Swift Package for iOS ==="
-          xcodebuild build \
+          xcodegen generate
+          ls -la InstitutionalApp.xcodeproj
+
+      - name: Build & Archive iOS App
+        run: |
+          echo "=== Archiving InstitutionalApp for iOS ==="
+          xcodebuild archive \
+            -project InstitutionalApp.xcodeproj \
             -scheme InstitutionalApp \
-            -destination "generic/platform=iOS" \
             -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/InstitutionalApp.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            -derivedDataPath .build/DerivedData || {
-              echo "xcodebuild failed, trying with swift build triple..."
-              SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-              swift build -c release --triple arm64-apple-ios17.0 -Xswiftc -sdk -Xswiftc "$SDK_PATH"
-            }
+            CODE_SIGN_IDENTITY=""
 
-      - name: Package into IPA
+      - name: Package IPA
         run: |
           echo "=== Creating Payload and IPA ==="
           rm -rf build/Payload InstitutionalApp.ipa
-          mkdir -p build/Payload/InstitutionalApp.app
-
-          BIN_PATH=$(find .build -type f -name "InstitutionalApp" -perm +111 ! -name "*.swift" | head -1)
-          echo "Found binary at: $BIN_PATH"
-          if [ -z "$BIN_PATH" ]; then
-            echo "Error: Binary InstitutionalApp not found in .build"
-            find .build -type f
-            exit 1
-          fi
-
-          cp "$BIN_PATH" build/Payload/InstitutionalApp.app/InstitutionalApp
-          chmod +x build/Payload/InstitutionalApp.app/InstitutionalApp
-
-          if [ -f Sources/InstitutionalApp/Resources/Info.plist ]; then
-            cp Sources/InstitutionalApp/Resources/Info.plist build/Payload/InstitutionalApp.app/Info.plist
-            sed -i '' 's/\$(EXECUTABLE_NAME)/InstitutionalApp/g' build/Payload/InstitutionalApp.app/Info.plist
-          fi
-
-          if [ -f InstitutionalApp.entitlements ]; then
-            cp InstitutionalApp.entitlements build/Payload/InstitutionalApp.app/
-          fi
-
+          mkdir -p build/Payload
+          cp -r build/InstitutionalApp.xcarchive/Products/Applications/InstitutionalApp.app build/Payload/
           cd build
           zip -r ../InstitutionalApp.ipa Payload/
           cd ..
-
-          echo "=== IPA created successfully ==="
+          echo "=== Finished IPA ==="
           ls -lh InstitutionalApp.ipa
 
       - name: Upload IPA Artifact

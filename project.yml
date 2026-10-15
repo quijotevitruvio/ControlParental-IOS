@@ -1,0 +1,30 @@
+name: InstitutionalApp
+options:
+  bundleIdPrefix: com.institutional
+  createIntermediateGroups: true
+targets:
+  InstitutionalApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources/InstitutionalApp
+        excludes:
+          - Resources/Info.plist
+    info:
+      path: Sources/InstitutionalApp/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: "Institutional Supervision"
+        CFBundleIdentifier: "com.institutional.supervision"
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+    entitlements:
+      path: InstitutionalApp.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.institutional.supervision
+        INFOPLIST_FILE: Sources/InstitutionalApp/Resources/Info.plist
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
