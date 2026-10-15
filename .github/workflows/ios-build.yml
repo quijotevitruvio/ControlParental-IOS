@@ -7,6 +7,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   build:
     runs-on: macos-14
@@ -34,7 +38,7 @@ jobs:
 
       - name: Build iOS App (.app)
         run: |
-          echo "=== Building InstitutionalApp with ad-hoc signing ==="
+          echo "=== Building InstitutionalApp without signing ==="
           set +e
           xcodebuild build \
             -project InstitutionalApp.xcodeproj \
@@ -42,29 +46,24 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/DerivedData \
-            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=YES \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_IDENTITY="" \
             COMPILER_INDEX_STORE_ENABLE=NO > build.log 2>&1
           STATUS=$?
           echo "xcodebuild exit code: $STATUS"
-          echo "### Build Log" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 150 build.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
           tail -n 80 build.log
           if [ $STATUS -ne 0 ]; then
             echo "Build failed with exit code $STATUS"
             exit $STATUS
           fi
 
-      - name: Upload Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
+      - name: Report log to issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create --title "Build Failure Log $(date)" --body-file build.log || true
 
       - name: Package IPA
         run: |
@@ -97,3 +96,20 @@ jobs:
           name: InstitutionalApp-iOS-ipa
           path: InstitutionalApp.ipa
           retention-days: 14
+
+      - name: Create GitHub Release with IPA
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/heads/main')
+        with:
+          tag_name: v1.0.0-${{ github.run_number }}
+          name: "InstitutionalApp iOS v1.0.0 (Build ${{ github.run_number }})"
+          body: |
+            ## InstitutionalApp iOS v1.0.0
+            
+            Archivo IPA listo para instalar en iPhone/iPad.
+            
+            ### Métodos de instalación:
+            1. **Sideloadly / AltStore**: Carga el archivo `.ipa`, ingresa tu Apple ID y se instala directo por USB o Wi-Fi.
+            2. **TrollStore**: Si tu versión de iOS lo soporta, instala el `.ipa` directamente sin caducidad.
+            3. **Apple Configurator / MDM**: Despliega como app institucional.
+          files: InstitutionalApp.ipa

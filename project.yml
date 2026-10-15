@@ -22,7 +22,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.institutional.supervision
         INFOPLIST_FILE: Sources/InstitutionalApp/Resources/Info.plist
-        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_IDENTITY: ""
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_REQUIRED: NO
-        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGNING_ALLOWED: NO
