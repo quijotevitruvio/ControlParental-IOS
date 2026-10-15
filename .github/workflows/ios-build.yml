@@ -85,10 +85,6 @@ jobs:
           mkdir -p build/Payload
           cp -r "$APP_PATH" build/Payload/
 
-          if [ -f InstitutionalApp.entitlements ]; then
-            cp InstitutionalApp.entitlements build/Payload/InstitutionalApp.app/
-          fi
-
           cd build
           zip -r ../InstitutionalApp.ipa Payload/
           cd ..

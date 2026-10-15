@@ -170,21 +170,33 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
     
     private func registerBackgroundTasks() {
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "com.institutional.supervision.telemetry-refresh",
-            using: nil
-        ) { task in
-            self.handleTelemetryRefresh(task: task as! BGAppRefreshTask)
+        guard let permitted = Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String] else {
+            logger.warning("No BGTaskSchedulerPermittedIdentifiers configured")
+            return
         }
         
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "com.institutional.supervision.telemetry-processing",
-            using: nil
-        ) { task in
-            self.handleTelemetryProcessing(task: task as! BGProcessingTask)
+        let refreshId = "com.institutional.supervision.telemetry-refresh"
+        let processingId = "com.institutional.supervision.telemetry-processing"
+        
+        if permitted.contains(refreshId) {
+            _ = BGTaskScheduler.shared.register(
+                forTaskWithIdentifier: refreshId,
+                using: nil
+            ) { task in
+                self.handleTelemetryRefresh(task: task as! BGAppRefreshTask)
+            }
         }
         
-        logger.info("Background tasks registered")
+        if permitted.contains(processingId) {
+            _ = BGTaskScheduler.shared.register(
+                forTaskWithIdentifier: processingId,
+                using: nil
+            ) { task in
+                self.handleTelemetryProcessing(task: task as! BGProcessingTask)
+            }
+        }
+        
+        logger.info("Background tasks safely checked")
     }
     
     private func handleTelemetryRefresh(task: BGAppRefreshTask) {

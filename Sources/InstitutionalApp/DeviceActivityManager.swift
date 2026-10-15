@@ -7,13 +7,7 @@
 //
 
 import Foundation
-import DeviceActivity
-import ManagedSettings
 import Combine
-
-extension DeviceActivityName {
-    static let daily = DeviceActivityName("daily")
-}
 
 @available(iOS 16.0, *)
 final class DeviceActivityManager: ObservableObject {
