@@ -61,6 +61,21 @@ struct SettingsView: View {
                     }
                 }
                 
+                Section(header: Text("Seguridad Parental")) {
+                    HStack {
+                        Text("Clave de Bloqueo")
+                        Spacer()
+                        Text(ParentalAuthManager.shared.isPinSet ? "Configurada ✅" : "Sin configurar ⚠️")
+                            .foregroundColor(ParentalAuthManager.shared.isPinSet ? .green : .orange)
+                    }
+                    
+                    Button("Bloquear App Ahora") {
+                        ParentalAuthManager.shared.lock()
+                        dismiss()
+                    }
+                    .foregroundColor(.blue)
+                }
+                
                 Section(header: Text("Organización")) {
                     HStack {
                         Text("Organización ID")

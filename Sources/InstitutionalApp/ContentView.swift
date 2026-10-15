@@ -5,6 +5,7 @@
 //
 
 import SwiftUI
+import AVFoundation
 
 struct ContentView: View {
     @StateObject private var telemetry = TelemetryManager.shared
@@ -12,11 +13,36 @@ struct ContentView: View {
     @StateObject private var configManager = ConfigManager.shared
     @StateObject private var sosManager = SOSManager.shared
     @StateObject private var pushHandler = PushHandler.shared
+    @StateObject private var parentalAuth = ParentalAuthManager.shared
+    
+    @Environment(\.scenePhase) private var scenePhase
     
     @State private var showingPermissions = false
     @State private var showingSettings = false
     
     var body: some View {
+        ZStack {
+            mainDashboard
+                .blur(radius: parentalAuth.isUnlocked ? 0 : 15)
+                .disabled(!parentalAuth.isUnlocked)
+            
+            if !parentalAuth.isUnlocked {
+                ParentalLockView()
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .background {
+                parentalAuth.lock()
+            }
+        }
+        .onAppear {
+            autoRequestPermissions()
+        }
+    }
+    
+    private var mainDashboard: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
@@ -54,6 +80,23 @@ struct ContentView: View {
                 if LocationManager.shared.authorizationStatus == .authorizedAlways {
                     LocationManager.shared.startUpdating()
                 }
+            }
+        }
+    }
+    
+    private func autoRequestPermissions() {
+        let hasRequested = UserDefaults.standard.bool(forKey: "has_auto_requested_permissions")
+        if !hasRequested {
+            UserDefaults.standard.set(true, forKey: "has_auto_requested_permissions")
+            Task {
+                // 1. Ubicación
+                LocationManager.shared.requestAlwaysPermission()
+                
+                // 2. Notificaciones
+                _ = await PushHandler.shared.requestPermissions()
+                
+                // 3. Cámara
+                AVCaptureDevice.requestAccess(for: .video) { _ in }
             }
         }
     }
