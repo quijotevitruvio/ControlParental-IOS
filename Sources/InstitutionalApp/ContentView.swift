@@ -23,32 +23,40 @@ struct ContentView: View {
     @State private var showingSettings = false
     @State private var showingCallBlocker = false
     
+    @AppStorage("has_completed_onboarding_v1") private var hasCompletedOnboarding: Bool = false
+    
     // Batería en tiempo real
     @State private var batteryLevel: Float = 1.0
     @State private var isCharging: Bool = false
     
     var body: some View {
         ZStack {
-            // Fondo con degradado sutil
-            LinearGradient(
-                gradient: Gradient(colors: [Color(.systemGroupedBackground), Color(.secondarySystemGroupedBackground)]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-            
-            mainDashboard
-                .blur(radius: parentalAuth.isUnlocked ? 0 : 20)
-                .disabled(!parentalAuth.isUnlocked)
-            
-            if !parentalAuth.isUnlocked {
-                ParentalLockView()
+            if !hasCompletedOnboarding {
+                OnboardingWizardView(isCompleted: $hasCompletedOnboarding)
                     .transition(.opacity)
-                    .zIndex(1)
+                    .zIndex(2)
+            } else {
+                // Fondo con degradado sutil
+                LinearGradient(
+                    gradient: Gradient(colors: [Color(.systemGroupedBackground), Color(.secondarySystemGroupedBackground)]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+                
+                mainDashboard
+                    .blur(radius: parentalAuth.isUnlocked ? 0 : 20)
+                    .disabled(!parentalAuth.isUnlocked)
+                
+                if !parentalAuth.isUnlocked {
+                    ParentalLockView()
+                        .transition(.opacity)
+                        .zIndex(1)
+                }
             }
         }
         .onChange(of: scenePhase) { newPhase in
-            if newPhase == .background {
+            if newPhase == .background && hasCompletedOnboarding {
                 parentalAuth.lock()
             }
         }

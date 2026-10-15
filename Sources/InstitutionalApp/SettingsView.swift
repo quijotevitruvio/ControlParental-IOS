@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var showingClearAlert = false
     @State private var showingChangePin = false
     @State private var showingCallBlocker = false
+    @State private var showingWizard = false
     
     // Estados para cambio de clave
     @State private var currentPinInput = ""
@@ -85,6 +86,11 @@ struct SettingsView: View {
                         pinChangeError = nil
                         pinChangeSuccess = false
                         showingChangePin = true
+                    }
+                    .foregroundColor(.blue)
+                    
+                    Button("Ver Guía de Configuración Inicial") {
+                        showingWizard = true
                     }
                     .foregroundColor(.blue)
                     
@@ -229,6 +235,9 @@ struct SettingsView: View {
                     EventLogger.shared.clearAll()
                     UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
                 }
+            }
+            .fullScreenCover(isPresented: $showingWizard) {
+                OnboardingWizardView(isCompleted: $showingWizard)
             }
         }
     }
