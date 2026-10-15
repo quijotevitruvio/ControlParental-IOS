@@ -19,54 +19,28 @@ extension DeviceActivityName {
 final class DeviceActivityManager: ObservableObject {
     static let shared = DeviceActivityManager()
     
-    private let center = DeviceActivityCenter()
-    private let store = ManagedSettingsStore()
-    
     @Published var isMonitoring = false
     
     private init() {}
     
     func startMonitoring() {
-        let schedule = DeviceActivitySchedule(
-            intervalStart: DateComponents(hour: 0, minute: 0),
-            intervalEnd: DateComponents(hour: 23, minute: 59),
-            repeats: true
-        )
-        
-        do {
-            try center.startMonitoring(.daily, during: schedule)
-            isMonitoring = true
-        } catch {
-            print("DeviceActivity monitoring failed: \(error)")
-        }
-    }
-    
-    func stopMonitoring() {
-        center.stopMonitoring([.daily])
+        // En instalaciones personales/sideloading no se cuenta con el entitlement com.apple.developer.family-controls.
+        // Se desactiva de forma segura para no provocar terminación forzada (crash) de la aplicación.
+        print("DeviceActivity: Screen Time solo disponible con perfil MDM empresarial.")
         isMonitoring = false
     }
     
-    func fetchDailySummary() {
-        // En iOS, el reporte detallado de Screen Time se procesa mediante una
-        // DeviceActivityReportExtension para preservar la privacidad del usuario.
+    func stopMonitoring() {
+        isMonitoring = false
     }
     
-    // Extrae resumen para telemetría
+    func fetchDailySummary() {}
+    
     func dailySummaryForTelemetry() -> [String: Any]? {
-        guard isMonitoring else { return nil }
-        return [
-            "monitoring_active": true,
-            "last_checked": ISO8601DateFormatter().string(from: Date())
-        ]
+        return nil
     }
     
-    // Bloqueo de apps por política (requiere supervisión MDM)
-    func setAppRestrictions(blockedBundles: [String], allowedBundles: [String]? = nil) {
-        // En iOS, las restricciones de aplicaciones se aplican a través de perfiles MDM
-        // o mediante la extensión ShieldConfiguration de FamilyControls.
-    }
+    func setAppRestrictions(blockedBundles: [String], allowedBundles: [String]? = nil) {}
     
-    func clearRestrictions() {
-        store.shield.applications = nil
-    }
+    func clearRestrictions() {}
 }

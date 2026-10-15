@@ -25,11 +25,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.distanceFilter = 10 // metros
-        manager.allowsBackgroundLocationUpdates = true
-        manager.pausesLocationUpdatesAutomatically = false
         manager.activityType = .other
         
-        authorizationStatus = CLLocationManager.authorizationStatus()
+        authorizationStatus = manager.authorizationStatus
     }
     
     func requestAlwaysPermission() {
@@ -38,9 +36,12 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
     
     func startUpdating() {
-        guard authorizationStatus == .authorizedAlways else {
-            // Si no tiene permiso "Siempre", no puede hacer background
+        guard authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse else {
             return
+        }
+        if authorizationStatus == .authorizedAlways {
+            manager.allowsBackgroundLocationUpdates = true
+            manager.pausesLocationUpdatesAutomatically = false
         }
         isUpdating = true
         manager.startUpdatingLocation()

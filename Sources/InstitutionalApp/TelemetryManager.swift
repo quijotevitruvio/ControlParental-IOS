@@ -27,11 +27,13 @@ final class TelemetryManager: ObservableObject {
     private var refreshTaskIdentifier = "com.institutional.supervision.telemetry-refresh"
     private var processingTaskIdentifier = "com.institutional.supervision.telemetry-processing"
     
-    private init() {}
+    private var isStarted = false
     
     func start() {
+        guard !isStarted else { return }
+        isStarted = true
+        
         Task { @MainActor in self.isUpdating = true }
-        registerBackgroundTasks()
         scheduleRefreshTask()
         scheduleProcessingTask()
         
@@ -41,19 +43,6 @@ final class TelemetryManager: ObservableObject {
         
         logEvent(type: "device_boot", meta: ["source": "app_start"])
         flushEvents()
-    }
-    
-    private func registerBackgroundTasks() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskIdentifier, using: nil) { task in
-            if let refreshTask = task as? BGAppRefreshTask {
-                self.handleRefreshTask(refreshTask)
-            }
-        }
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: processingTaskIdentifier, using: nil) { task in
-            if let processingTask = task as? BGProcessingTask {
-                self.handleProcessingTask(processingTask)
-            }
-        }
     }
     
     private func scheduleRefreshTask() {
@@ -68,27 +57,6 @@ final class TelemetryManager: ObservableObject {
         request.requiresNetworkConnectivity = true
         request.requiresExternalPower = false
         try? BGTaskScheduler.shared.submit(request)
-    }
-    
-    private func handleRefreshTask(_ task: BGAppRefreshTask) {
-        scheduleRefreshTask()
-        task.expirationHandler = { self.flushEvents() }
-        
-        Task {
-            await self.collectAndSendTelemetry()
-            task.setTaskCompleted(success: true)
-        }
-    }
-    
-    private func handleProcessingTask(_ task: BGProcessingTask) {
-        scheduleProcessingTask()
-        task.expirationHandler = { self.flushEvents() }
-        
-        Task {
-            await self.collectAndSendTelemetry(includeHeavy: true)
-            self.flushEvents()
-            task.setTaskCompleted(success: true)
-        }
     }
     
     func collectAndSendTelemetry(includeHeavy: Bool = false) async {

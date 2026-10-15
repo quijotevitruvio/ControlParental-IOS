@@ -62,10 +62,6 @@
         <string>processing</string>
         <string>remote-notification</string>
     </array>
-    <key>com.apple.developer.device-activity</key>
-    <true/>
-    <key>com.apple.developer.managed-settings</key>
-    <true/>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
 </dict>
