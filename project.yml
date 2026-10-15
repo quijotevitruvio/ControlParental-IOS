@@ -22,6 +22,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.institutional.supervision
         INFOPLIST_FILE: Sources/InstitutionalApp/Resources/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_IDENTITY: ""
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_REQUIRED: NO
