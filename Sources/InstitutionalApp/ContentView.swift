@@ -60,6 +60,7 @@ struct ContentView: View {
         .onAppear {
             autoRequestPermissions()
             updateBatteryInfo()
+            telemetry.sendTelemetryNow()
             updateManager.checkForUpdates()
         }
     }
@@ -487,7 +488,7 @@ struct ContentView: View {
                 StatItem(label: "En Cola", value: "\(EventLogger.shared.pendingCount)")
             }
             
-            Button(action: { Task { await telemetry.flushEvents() } }) {
+            Button(action: { telemetry.sendTelemetryNow() }) {
                 HStack {
                     Spacer()
                     Image(systemName: "arrow.triangle.2.circlepath")

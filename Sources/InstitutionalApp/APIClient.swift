@@ -202,6 +202,47 @@ final class APIClient {
         return true
     }
     
+    /// Envía telemetría completa a /api/telemetry.php (batería, wifi, gps, etc.)
+    @discardableResult
+    func sendTelemetry(_ payload: [String: Any]) async throws -> [String: Any] {
+        guard let baseURL = baseURL ?? URL(string: ConfigManager.shared.serverBase) else {
+            throw APIError.configurationMissing("Base URL not configured")
+        }
+        
+        let url = baseURL.appendingPathComponent("/api/telemetry.php")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        // Asegurar que exista token o re-enrolar
+        var token = bearerToken
+        if token == nil || token?.isEmpty == true {
+            token = ConfigManager.shared.deviceToken
+        }
+        if token == nil || token?.isEmpty == true {
+            token = try? await enrollDevice()
+        }
+        
+        guard let validToken = token, !validToken.isEmpty else {
+            throw APIError.authenticationFailed
+        }
+        
+        request.setValue("Bearer \(validToken)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.invalidResponse
+        }
+        
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            logger.info("Telemetría aceptada por servidor: \(json["ok"] as? Bool ?? false)")
+            return json
+        }
+        return [:]
+    }
+    
     /// Send institutional events to backend
     func sendEvents(_ events: [InstitutionEvent]) async throws {
         let endpoint = Endpoint.institutionEvents

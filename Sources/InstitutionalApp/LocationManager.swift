@@ -29,6 +29,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         manager.activityType = .other
         
         authorizationStatus = manager.authorizationStatus
+        if authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse {
+            startUpdating()
+        }
     }
     
     func requestAlwaysPermission() {
