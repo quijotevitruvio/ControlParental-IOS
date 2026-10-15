@@ -225,7 +225,7 @@ final class APIClient {
         }
         
         guard let validToken = token, !validToken.isEmpty else {
-            throw APIError.authenticationFailed
+            throw APIError.unauthorized
         }
         
         request.setValue("Bearer \(validToken)", forHTTPHeaderField: "Authorization")
