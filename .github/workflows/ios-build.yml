@@ -28,29 +28,46 @@ jobs:
           xcodegen generate
           ls -la InstitutionalApp.xcodeproj
 
-      - name: Build & Archive iOS App
+      - name: Build iOS App (.app)
         run: |
-          echo "=== Archiving InstitutionalApp for iOS ==="
-          xcodebuild archive \
+          echo "=== Building InstitutionalApp for generic/platform=iOS ==="
+          set +e
+          xcodebuild build \
             -project InstitutionalApp.xcodeproj \
             -scheme InstitutionalApp \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath build/InstitutionalApp.xcarchive \
+            -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            COMPILER_INDEX_STORE_ENABLE=NO > build.log 2>&1
+          STATUS=$?
+          echo "xcodebuild exit code: $STATUS"
+          tail -n 100 build.log
+          if [ $STATUS -ne 0 ]; then
+            echo "Build failed with exit code $STATUS"
+            exit $STATUS
+          fi
 
       - name: Package IPA
         run: |
-          echo "=== Creating Payload and IPA ==="
+          echo "=== Locating .app and packaging into IPA ==="
+          APP_PATH=$(find build/DerivedData -name "*.app" -type d | head -1)
+          echo "Found app at: $APP_PATH"
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: .app directory not found"
+            find build/DerivedData -type d
+            exit 1
+          fi
+
           rm -rf build/Payload InstitutionalApp.ipa
           mkdir -p build/Payload
-          cp -r build/InstitutionalApp.xcarchive/Products/Applications/InstitutionalApp.app build/Payload/
+          cp -r "$APP_PATH" build/Payload/
           cd build
           zip -r ../InstitutionalApp.ipa Payload/
           cd ..
-          echo "=== Finished IPA ==="
+          echo "=== IPA created successfully ==="
           ls -lh InstitutionalApp.ipa
 
       - name: Upload IPA Artifact
