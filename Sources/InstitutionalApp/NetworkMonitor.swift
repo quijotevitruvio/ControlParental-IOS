@@ -85,24 +85,17 @@ final class NetworkMonitor {
     // MARK: - API pública usada por TelemetryManager
     
     var isVPNActive: Bool {
-        // En iOS, NWPath no expone VPN directamente. Se detecta revisando
-        // si la interfaz activa es .other con ciertas condiciones, o usando
-        // NEVPNManager (requiere entitlement).
-        // Aproximación práctica: .other + expensive suele indicar VPN/tethering.
-        if let path = monitor.currentPath {
-            return path.usesInterfaceType(.other) && path.isExpensive
-        }
-        return false
+        let path = monitor.currentPath
+        return path.usesInterfaceType(.other) && path.isExpensive
     }
     
     func currentNetworkInfo() async -> [String: Any] {
         var info: [String: Any] = [:]
-        if let path = monitor.currentPath {
-            info["net_type"] = connectionType.rawValue
-            info["conn"] = connectionType.rawValue
-            info["is_expensive"] = path.isExpensive
-            info["is_constrained"] = path.isConstrained
-        }
+        let path = monitor.currentPath
+        info["net_type"] = connectionType.rawValue
+        info["conn"] = connectionType.rawValue
+        info["is_expensive"] = path.isExpensive
+        info["is_constrained"] = path.isConstrained
         return info
     }
     

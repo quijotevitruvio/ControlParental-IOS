@@ -51,7 +51,6 @@ final class SOSManager: ObservableObject {
         }
         
         // Obtener ubicación actual
-        let coordinate = LocationManager.shared.lastLocation?.coordinate
         let timestamp = ISO8601DateFormatter().string(from: Date())
         
         var meta: [String: Any] = [
@@ -62,8 +61,8 @@ final class SOSManager: ObservableObject {
         ]
         
         if let coord = LocationManager.shared.lastLocation?.coordinate {
-            meta["latitude"] = coordinate.latitude
-            meta["longitude"] = coordinate.longitude
+            meta["latitude"] = coord.latitude
+            meta["longitude"] = coord.longitude
             meta["accuracy"] = LocationManager.shared.lastLocation?.horizontalAccuracy ?? 0
         }
         
@@ -86,7 +85,7 @@ final class SOSManager: ObservableObject {
             }
             
             // Log local
-            EventLogger.shared.log(context: "sos_sent", meta: ["type": mediaType.rawValue])
+            EventLogger.shared.log(type: "sos_sent", meta: ["type": mediaType.rawValue])
             
             return true
         } catch {

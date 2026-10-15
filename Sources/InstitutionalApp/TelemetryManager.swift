@@ -7,11 +7,16 @@
 //
 
 import Foundation
+import UIKit
 import Combine
 import BackgroundTasks
 
-final class TelemetryManager {
+final class TelemetryManager: ObservableObject {
     static let shared = TelemetryManager()
+    
+    @Published var lastSent: Date?
+    @Published var isUpdating: Bool = false
+    @Published var isSending: Bool = false
     
     private let apiClient = APIClient.shared
     private let eventLogger = EventLogger.shared
@@ -19,32 +24,35 @@ final class TelemetryManager {
     private let networkMonitor = NetworkMonitor.shared
     private var cancellables = Set<AnyCancellable>()
     
-    private var refreshTaskIdentifier = "com.institucional.telemetry.refresh"
-    private var processingTaskIdentifier = "com.institucional.telemetry.processing"
+    private var refreshTaskIdentifier = "com.institutional.supervision.telemetry-refresh"
+    private var processingTaskIdentifier = "com.institutional.supervision.telemetry-processing"
     
     private init() {}
     
     func start() {
+        Task { @MainActor in self.isUpdating = true }
         registerBackgroundTasks()
         scheduleRefreshTask()
         scheduleProcessingTask()
         
-        // Escuchar push silencioso para flush inmediato
         NotificationCenter.default.publisher(for: .institucionalSilentPush)
             .sink { [weak self] _ in self?.flushEvents() }
             .store(in: &cancellables)
         
-        // Evento de arranque
         logEvent(type: "device_boot", meta: ["source": "app_start"])
         flushEvents()
     }
     
     private func registerBackgroundTasks() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskIdentifier, using: nil) { task in
-            self.handleRefreshTask(task as! BGAppRefreshTask)
+            if let refreshTask = task as? BGAppRefreshTask {
+                self.handleRefreshTask(refreshTask)
+            }
         }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: processingTaskIdentifier, using: nil) { task in
-            self.handleProcessingTask(task as! BGProcessingTask)
+            if let processingTask = task as? BGProcessingTask {
+                self.handleProcessingTask(processingTask)
+            }
         }
     }
     
@@ -63,8 +71,7 @@ final class TelemetryManager {
     }
     
     private func handleRefreshTask(_ task: BGAppRefreshTask) {
-        scheduleRefreshTask() // Re-agendar
-        
+        scheduleRefreshTask()
         task.expirationHandler = { self.flushEvents() }
         
         Task {
@@ -75,7 +82,6 @@ final class TelemetryManager {
     
     private func handleProcessingTask(_ task: BGProcessingTask) {
         scheduleProcessingTask()
-        
         task.expirationHandler = { self.flushEvents() }
         
         Task {
@@ -87,30 +93,33 @@ final class TelemetryManager {
     
     func collectAndSendTelemetry(includeHeavy: Bool = false) async {
         let payload = await buildPayload(includeHeavy: includeHeavy)
+        eventLogger.log(type: "telemetry", meta: payload)
         
-        // Guarda en cola offline
-        await eventLogger.log(type: "telemetry", meta: payload)
-        
-        // Si hay red, intenta enviar
         if NetworkMonitor.shared.isConnected {
-            await flushEvents()
+            flushEvents()
         }
     }
     
     private func buildPayload(includeHeavy: Bool) async -> [String: Any] {
         var payload: [String: Any] = [:]
         
-        // Batería
-        await UIDevice.current.isBatteryMonitoringEnabled = true
-        payload["battery"] = Int(UIDevice.current.batteryLevel * 100)
-        payload["charging"] = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
+        // Batería en MainActor
+        let (battery, isCharging, model, systemVersion) = await MainActor.run {
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            let bat = Int(UIDevice.current.batteryLevel * 100)
+            let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
+            return (bat, charging, UIDevice.current.model, UIDevice.current.systemVersion)
+        }
+        payload["battery"] = battery
+        payload["charging"] = isCharging
+        payload["model"] = model
+        payload["system_version"] = systemVersion
         
         // Red
-        if let netInfo = await NetworkMonitor.shared.currentNetworkInfo() {
-            payload.merge(netInfo) { _, new in new }
-        }
+        let netInfo = await NetworkMonitor.shared.currentNetworkInfo()
+        payload.merge(netInfo) { _, new in new }
         
-        // Ubicación (si permiso concedido)
+        // Ubicación
         if let loc = LocationManager.shared.lastLocation {
             payload["lat"] = loc.coordinate.latitude
             payload["lng"] = loc.coordinate.longitude
@@ -118,23 +127,15 @@ final class TelemetryManager {
             payload["speed"] = loc.speed >= 0 ? loc.speed * 3.6 : 0 // km/h
         }
         
-        // DeviceActivity (Screen Time) - agregados
+        // DeviceActivity (Screen Time)
         if #available(iOS 16.0, *) {
-            if let activity = await DeviceActivityManager.shared.fetchDailySummary() {
+            if let activity = DeviceActivityManager.shared.dailySummaryForTelemetry() {
                 payload["device_activity"] = activity
             }
         }
         
-        // Info extra
-        payload["model"] = UIDevice.current.model
-        payload["system_version"] = UIDevice.current.systemVersion
         payload["app_version"] = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         payload["timestamp"] = ISO8601DateFormatter().string(from: Date())
-        
-        if includeHeavy {
-            // Apps instaladas (solo nombres/IDs públicos)
-            // Requiere entitlement com.apple.developer.managed-apps
-        }
         
         return payload
     }
@@ -144,52 +145,45 @@ final class TelemetryManager {
             let events = await EventLogger.shared.pendingEvents()
             guard !events.isEmpty else { return }
             
+            await MainActor.run { self.isSending = true }
+            defer { Task { @MainActor in self.isSending = false } }
+            
             do {
-                let success = try await APIClient.shared.sendInstitutionEvents(events)
+                let dicts = events.map { $0.asDictionary }
+                let success = try await APIClient.shared.sendInstitutionEvents(dicts)
                 if success {
                     await EventLogger.shared.markAsSent(events)
+                    await MainActor.run {
+                        self.lastSent = Date()
+                    }
                 }
             } catch {
                 // Se queda en cola para próximo intento
             }
             
-            // Re-agenda tareas
             scheduleRefreshTask()
             scheduleProcessingTask()
         }
     }
     
-    // MARK: - Eventos de riesgo/anti-evasión
-    
     func logEvent(type: String, meta: [String: Any] = [:]) {
-        let event: [String: Any] = [
-            "type": type,
-            "occurred_at": ISO8601DateFormatter().string(from: Date()),
-            "meta": meta
-        ]
-        Task { await eventLogger.log(type: type, meta: ["event": type]) }
+        eventLogger.log(type: type, meta: meta)
     }
     
     func detectEvasionEvents() {
-        // VPN detection
         if NetworkMonitor.shared.isVPNActive {
             logEventOnce(type: "vpn_detected", key: "vpn", meta: ["app": "vpn", "net_type": "vpn"])
         }
         
-        // Airplane mode
-        let airplaneOn = UserDefaults.standard.bool(forKey: "airplane_mode_on") // placeholder
-        // En iOS real se detecta via CTTelephonyNetworkInfo o NotificationCenter
-        
-        // Device boot
         logEventOnce(type: "device_boot", key: "boot", windowMs: 60 * 60 * 1000)
     }
     
     private func logEventOnce(type: String, key: String, windowMs: Int64 = 900_000, meta: [String: Any] = [:]) {
-        let now = Date().timeIntervalSince1970 * 1000
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
         let keyName = "inst_last_\(key)"
         let last = UserDefaults.standard.value(forKey: keyName) as? Int64 ?? 0
         if now - last >= windowMs {
-            UserDefaults.standard.set(Int64(now), forKey: keyName)
+            UserDefaults.standard.set(now, forKey: keyName)
             logEvent(type: type, meta: meta)
         }
     }

@@ -2,29 +2,8 @@ import Foundation
 import Combine
 import OSLog
 
-/// Tipo de evento institucional (debe coincidir con lib/risk.php en el backend)
-enum InstitutionEventType: String, Codable {
-    case deviceBoot = "device_boot"
-    case serviceAlive = "service_alive"
-    case locationUpdate = "location_update"
-    case geofenceEnter = "geofence_enter"
-    case geofenceExit = "geofence_exit"
-    case vpnDetected = "vpn_detected"
-    case airplaneModeOn = "airplane_mode_on"
-    case appUsageSummary = "app_usage_summary"
-    case networkInfo = "network_info"
-    case batteryStatus = "battery_status"
-    case riskSelfharm = "risk_selfharm"
-    case riskGrooming = "risk_grooming"
-    case riskViolence = "risk_violence"
-    case sosButton = "sos_button"
-    case policyViolation = "policy_violation"
-    case locationPermissionRevoked = "location_permission_revoked"
-    case custom = "custom"
-}
-
 /// Offline event queue with persistence - mirrors Android's InstitutionEventLogger
-final class EventLogger {
+final class EventLogger: ObservableObject {
     
     static let shared = EventLogger()
     
@@ -39,12 +18,10 @@ final class EventLogger {
     private var eventQueue: [QueuedEvent] = []
     private let queueLock = NSLock()
     
+    @Published var queueCount: Int = 0
+    
     // Flush timer
     private var flushTimer: Timer?
-    
-    // Dependencies
-    private let apiClient = APIClient.shared
-    private let networkMonitor = NetworkMonitor.shared
     
     private var cancellables = Set<AnyCancellable>()
     
@@ -61,96 +38,43 @@ final class EventLogger {
     
     // MARK: - Public API
     
-    /// Add event to queue for later sending
-    func enqueue(_ event: InstitutionEvent) {
-        queueLock.lock()
-        defer { queueLock.unlock() }
-        
-        // Check queue size limit
-        if eventQueue.count >= maxQueueSize {
-            // Remove oldest non-critical events
-            eventQueue.removeFirst()
-            logger.warning("Event queue full, removed oldest event")
-        }
-        
-        let queuedEvent = QueuedEvent(
-            id: UUID(),
-            event: event,
-            timestamp: Date(),
-            retryCount: 0
-        )
-        eventQueue.append(queuedEvent)
-        persistQueue()
-        
-        logger.debug("Enqueued event: \(event.type.rawValue), queue size: \(self.eventQueue.count)")
-    }
-    
-    /// Add multiple events at once
-    func enqueue(_ events: [InstitutionEvent]) {
-        events.forEach { enqueue($0) }
-    }
-    
-    /// Flush queue to server
-    func flush() async {
-        guard networkMonitor.isConnected else {
-            logger.debug("Network not available, skipping flush")
-            return
-        }
-        
-        let eventsToSend: [QueuedEvent]
-        queueLock.lock()
-        eventsToSend = eventQueue
-        queueLock.unlock()
-        
-        guard !eventsToSend.isEmpty else { return }
-        
-        logger.info("Flushing \(eventsToSend.count) events to server")
-        
-        do {
-            let events = eventsToSend.map { $0.event }
-            try await apiClient.sendEvents(events)
-            
-            // Clear queue on success
-            queueLock.lock()
-            eventQueue.removeAll()
-            queueLock.unlock()
-            persistQueue()
-            
-            logger.info("Successfully flushed \(eventsToSend.count) events")
-            
-        } catch {
-            logger.error("Failed to flush events: \(error.localizedDescription)")
-            
-            // Increment retry counts
-            queueLock.lock()
-            for i in eventQueue.indices {
-                eventQueue[i].retryCount += 1
-            }
-            // Remove events that have failed too many times
-            eventQueue.removeAll { $0.retryCount > 5 }
-            queueLock.unlock()
-            persistQueue()
-        }
-    }
-    
-    /// Get current queue count (for UI)
-    var queueCount: Int {
+    var pendingCount: Int {
         queueLock.lock()
         defer { queueLock.unlock() }
         return eventQueue.count
     }
     
-    /// Get events for UI display
     var queuedEvents: [QueuedEvent] {
         queueLock.lock()
         defer { queueLock.unlock() }
         return eventQueue
     }
     
-    var pendingCount: Int { queueCount }
+    func enqueue(_ event: QueuedEvent) {
+        queueLock.lock()
+        defer { queueLock.unlock() }
+        
+        if eventQueue.count >= maxQueueSize {
+            eventQueue.removeFirst()
+            logger.warning("Event queue full, removed oldest event")
+        }
+        
+        eventQueue.append(event)
+        DispatchQueue.main.async {
+            self.queueCount = self.eventQueue.count
+        }
+        persistQueue()
+        logger.debug("Enqueued event: \(event.type), queue size: \(self.eventQueue.count)")
+    }
+    
+    func log(type: String, meta: [String: Any]? = nil) {
+        let queued = QueuedEvent(type: type, meta: meta)
+        enqueue(queued)
+    }
     
     func pendingEvents() async -> [QueuedEvent] {
-        queueLock.lock(); defer { queueLock.unlock() }
+        queueLock.lock()
+        defer { queueLock.unlock() }
         return eventQueue
     }
     
@@ -158,7 +82,12 @@ final class EventLogger {
         queueLock.lock()
         let ids = Set(events.map { $0.id })
         eventQueue.removeAll { ids.contains($0.id) }
+        let count = eventQueue.count
         queueLock.unlock()
+        
+        DispatchQueue.main.async {
+            self.queueCount = count
+        }
         persistQueue()
     }
     
@@ -166,174 +95,15 @@ final class EventLogger {
         queueLock.lock()
         eventQueue.removeAll()
         queueLock.unlock()
+        
+        DispatchQueue.main.async {
+            self.queueCount = 0
+        }
         persistQueue()
     }
     
-    func log(type: String, meta: [String: Any]?) async {
-        let event = InstitutionEvent(
-            type: EventType(rawValue: type) ?? .custom,
-            timestamp: Date(),
-            payload: meta ?? [:]
-        )
-        enqueue(event)
-    }
-    
-    var pendingCount: Int { queueCount }
-    
-    func pendingEvents() async -> [QueuedEvent] {
-        queueLock.lock(); defer { queueLock.unlock() }
-        return eventQueue
-    }
-    
-    func markAsSent(_ events: [QueuedEvent]) async {
-        queueLock.lock()
-        let ids = Set(events.map { $0.id })
-        eventQueue.removeAll { ids.contains($0.id) }
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func clearAll() {
-        queueLock.lock()
-        eventQueue.removeAll()
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func log(type: String, meta: [String: Any]?) async {
-        let event = InstitutionEvent(
-            type: EventType(rawValue: type) ?? .custom,
-            timestamp: Date(),
-            payload: meta ?? [:]
-        )
-        enqueue(event)
-    }
-    
-    var pendingCount: Int { queueCount }
-    
-    func pendingEvents() async -> [QueuedEvent] {
-        queueLock.lock(); defer { queueLock.unlock() }
-        return eventQueue
-    }
-    
-    func markAsSent(_ events: [QueuedEvent]) async {
-        queueLock.lock()
-        let ids = Set(events.map { $0.id })
-        eventQueue.removeAll { ids.contains($0.id) }
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func clearAll() {
-        queueLock.lock()
-        eventQueue.removeAll()
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func log(type: String, meta: [String: Any]?) async {
-        let event = InstitutionEvent(
-            type: EventType(rawValue: type) ?? .custom,
-            timestamp: Date(),
-            payload: meta ?? [:]
-        )
-        enqueue(event)
-    }
-    
-    var pendingCount: Int { queueCount }
-    
-    func pendingEvents() async -> [QueuedEvent] {
-        queueLock.lock(); defer { queueLock.unlock() }
-        return eventQueue
-    }
-    
-    func markAsSent(_ events: [QueuedEvent]) async {
-        queueLock.lock()
-        let ids = Set(events.map { $0.id })
-        eventQueue.removeAll { ids.contains($0.id) }
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func clearAll() {
-        queueLock.lock()
-        eventQueue.removeAll()
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func log(type: String, meta: [String: Any]?) async {
-        let event = InstitutionEvent(
-            id: UUID(),
-            type: InstitutionEventType(rawValue: type) ?? .custom,
-            timestamp: Date(),
-            metadata: meta ?? [:]
-        )
-        enqueue(event)
-    }
-    
-    var pendingCount: Int { queueCount }
-    
-    func pendingEvents() async -> [QueuedEvent] {
-        queueLock.lock(); defer { queueLock.unlock() }
-        return eventQueue
-    }
-    
-    func markAsSent(_ events: [QueuedEvent]) async {
-        queueLock.lock()
-        let ids = Set(events.map { $0.id })
-        eventQueue.removeAll { ids.contains($0.id) }
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func clearAll() {
-        queueLock.lock()
-        eventQueue.removeAll()
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func log(type: String, meta: [String: Any]?) async {
-        let event = InstitutionEvent(
-            id: UUID(),
-            type: InstitutionEventType(rawValue: type) ?? .custom,
-            timestamp: Date(),
-            metadata: meta ?? [:]
-        )
-        enqueue(event)
-    }
-    
-    var pendingCount: Int { queueCount }
-    
-    func pendingEvents() async -> [QueuedEvent] {
-        queueLock.lock(); defer { queueLock.unlock() }
-        return eventQueue
-    }
-    
-    func markAsSent(_ events: [QueuedEvent]) async {
-        queueLock.lock()
-        let ids = Set(events.map { $0.id })
-        eventQueue.removeAll { ids.contains($0.id) }
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func clearAll() {
-        queueLock.lock()
-        eventQueue.removeAll()
-        queueLock.unlock()
-        persistQueue()
-    }
-    
-    func log(type: String, meta: [String: Any]?) async {
-        let event = InstitutionEvent(
-            id: UUID(),
-            type: InstitutionEventType(rawValue: type) ?? .custom,
-            timestamp: Date(),
-            metadata: meta ?? [:]
-        )
-        enqueue(event)
+    func flush() async {
+        await TelemetryManager.shared.flushEvents()
     }
     
     // MARK: - Private Methods
@@ -348,8 +118,7 @@ final class EventLogger {
     }
     
     private func observeNetworkChanges() {
-        networkMonitor.$isConnected
-            .filter { $0 }
+        NotificationCenter.default.publisher(for: .networkStatusChanged)
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task {
@@ -383,6 +152,7 @@ final class EventLogger {
         
         do {
             eventQueue = try JSONDecoder().decode([QueuedEvent].self, from: data)
+            queueCount = eventQueue.count
             logger.info("Loaded \(self.eventQueue.count) events from persistent storage")
         } catch {
             logger.error("Failed to load event queue: \(error.localizedDescription)")
@@ -393,11 +163,43 @@ final class EventLogger {
 
 // MARK: - Queued Event Model
 
-struct QueuedEvent: Codable {
+struct QueuedEvent: Codable, Identifiable {
     let id: UUID
-    let event: InstitutionEvent
+    let type: String
     let timestamp: Date
+    let metaJSON: String
     var retryCount: Int
+    
+    init(id: UUID = UUID(), type: String, timestamp: Date = Date(), meta: [String: Any]? = nil, retryCount: Int = 0) {
+        self.id = id
+        self.type = type
+        self.timestamp = timestamp
+        if let meta = meta,
+           let data = try? JSONSerialization.data(withJSONObject: meta, options: []),
+           let str = String(data: data, encoding: .utf8) {
+            self.metaJSON = str
+        } else {
+            self.metaJSON = "{}"
+        }
+        self.retryCount = retryCount
+    }
+    
+    var metaDict: [String: Any] {
+        guard let data = metaJSON.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return dict
+    }
+    
+    var asDictionary: [String: Any] {
+        return [
+            "id": id.uuidString,
+            "type": type,
+            "occurred_at": ISO8601DateFormatter().string(from: timestamp),
+            "meta": metaDict
+        ]
+    }
 }
 
 // MARK: - Notification Names

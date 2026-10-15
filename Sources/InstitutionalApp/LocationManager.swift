@@ -160,13 +160,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     
     func locationManager(_ manager: CLLocationManager, didStartMonitoringFor region: CLRegion) {
         print("Started monitoring: \(region.identifier)")
-    }
-    
-    func requestAlwaysPermission() {
-        guard authorizationStatus == .notDetermined else { return }
-        manager.requestAlwaysAuthorization()
-    }
-    
     func saveState() {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "location_last_state")
     }
