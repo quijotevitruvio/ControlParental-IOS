@@ -1,0 +1,81 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 15.4
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.4'
+
+      - name: Show Xcode & Swift version
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build for iOS
+        run: |
+          echo "=== Compiling Swift Package for iOS ==="
+          xcodebuild build \
+            -scheme InstitutionalApp \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            -derivedDataPath .build/DerivedData || {
+              echo "xcodebuild failed, trying with swift build triple..."
+              SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+              swift build -c release --triple arm64-apple-ios17.0 -Xswiftc -sdk -Xswiftc "$SDK_PATH"
+            }
+
+      - name: Package into IPA
+        run: |
+          echo "=== Creating Payload and IPA ==="
+          rm -rf build/Payload InstitutionalApp.ipa
+          mkdir -p build/Payload/InstitutionalApp.app
+
+          BIN_PATH=$(find .build -type f -name "InstitutionalApp" -perm +111 ! -name "*.swift" | head -1)
+          echo "Found binary at: $BIN_PATH"
+          if [ -z "$BIN_PATH" ]; then
+            echo "Error: Binary InstitutionalApp not found in .build"
+            find .build -type f
+            exit 1
+          fi
+
+          cp "$BIN_PATH" build/Payload/InstitutionalApp.app/InstitutionalApp
+          chmod +x build/Payload/InstitutionalApp.app/InstitutionalApp
+
+          if [ -f Sources/InstitutionalApp/Resources/Info.plist ]; then
+            cp Sources/InstitutionalApp/Resources/Info.plist build/Payload/InstitutionalApp.app/Info.plist
+            sed -i '' 's/\$(EXECUTABLE_NAME)/InstitutionalApp/g' build/Payload/InstitutionalApp.app/Info.plist
+          fi
+
+          if [ -f InstitutionalApp.entitlements ]; then
+            cp InstitutionalApp.entitlements build/Payload/InstitutionalApp.app/
+          fi
+
+          cd build
+          zip -r ../InstitutionalApp.ipa Payload/
+          cd ..
+
+          echo "=== IPA created successfully ==="
+          ls -lh InstitutionalApp.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InstitutionalApp-iOS-ipa
+          path: InstitutionalApp.ipa
+          retention-days: 14
