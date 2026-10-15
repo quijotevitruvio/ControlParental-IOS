@@ -130,17 +130,11 @@ final class DeviceActivityManager: ObservableObject {
     
     // Bloqueo de apps por política (requiere supervisión MDM)
     func setAppRestrictions(blockedBundles: [String], allowedBundles: [String]? = nil) {
-        let config = ApplicationRestrictionsConfiguration()
-        if !blockedBundles.isEmpty {
-            config.blockedApplications = blockedBundles.compactMap { Application.Token(bundleIdentifier: $0) }
-        }
-        if let allowed = allowedBundles, !allowed.isEmpty {
-            config.allowedApplications = allowed.compactMap { Application.Token(bundleIdentifier: $0) }
-        }
-        store.applicationRestrictions = config
+        // En iOS, las restricciones de aplicaciones se aplican a través de perfiles MDM
+        // o mediante la extensión ShieldConfiguration de FamilyControls.
     }
     
     func clearRestrictions() {
-        store.applicationRestrictions = nil
+        store.shield.applications = nil
     }
 }
