@@ -33,6 +33,11 @@ jobs:
         run: |
           brew install xcodegen
 
+      - name: Inject Build Number
+        run: |
+          sed -i '' 's/CFBundleVersion: "1"/CFBundleVersion: "${{ github.run_number }}"/' project.yml
+          sed -i '' 's/<string>1<\/string>/<string>${{ github.run_number }}<\/string>/' Sources/InstitutionalApp/Resources/Info.plist
+
       - name: Generate Xcode Project
         run: |
           xcodegen generate
@@ -98,19 +103,28 @@ jobs:
           path: InstitutionalApp.ipa
           retention-days: 14
 
+      - name: Prepare Release Assets
+        run: |
+          cp InstitutionalApp.ipa Empresas.ipa
+          # Actualizar apps.json con la fecha y build de esta ejecución
+          sed -i '' 's/"versionDescription": ".*"/"versionDescription": "Build ${{ github.run_number }}"/' apps.json
+
       - name: Create GitHub Release with IPA
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/heads/main')
         with:
           tag_name: v1.0.0-${{ github.run_number }}
-          name: "InstitutionalApp iOS v1.0.0 (Build ${{ github.run_number }})"
+          name: "Empresas iOS v1.0.0 (Build ${{ github.run_number }})"
           body: |
-            ## InstitutionalApp iOS v1.0.0
+            ## Empresas iOS v1.0.0 (Build ${{ github.run_number }})
             
             Archivo IPA listo para instalar en iPhone/iPad.
             
-            ### Métodos de instalación:
-            1. **Sideloadly / AltStore**: Carga el archivo `.ipa`, ingresa tu Apple ID y se instala directo por USB o Wi-Fi.
-            2. **TrollStore**: Si tu versión de iOS lo soporta, instala el `.ipa` directamente sin caducidad.
-            3. **Apple Configurator / MDM**: Despliega como app institucional.
-          files: InstitutionalApp.ipa
+            ### Métodos de instalación / Actualización:
+            1. **SideStore / AltStore**: Agrega el repositorio `apps.json` para actualizaciones inalámbricas automáticas por Wi-Fi sin PC.
+            2. **3uTools / Sideloadly**: Firma el archivo `Empresas.ipa` con tu Apple ID personal.
+            3. **TrollStore**: Si tu dispositivo lo soporta, instalación directa permanente.
+          files: |
+            InstitutionalApp.ipa
+            Empresas.ipa
+            apps.json

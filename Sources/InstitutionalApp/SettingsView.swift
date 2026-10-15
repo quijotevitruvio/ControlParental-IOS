@@ -13,6 +13,7 @@ struct SettingsView: View {
     @StateObject private var eventLogger = EventLogger.shared
     @StateObject private var callManager = CallBlockerManager.shared
     @StateObject private var parentalAuth = ParentalAuthManager.shared
+    @ObservedObject private var updateManager = UpdateManager.shared
     
     @State private var serverBase = ""
     @State private var showingClearAlert = false
@@ -134,6 +135,39 @@ struct SettingsView: View {
                         Spacer()
                         Image(systemName: ConfigManager.shared.isManaged ? "checkmark.circle.fill" : "xmark.circle.fill")
                             .foregroundColor(ConfigManager.shared.isManaged ? .green : .red)
+                    }
+                }
+                
+                Section(header: Text("Actualizaciones de la App")) {
+                    HStack {
+                        Text("Versión Instalada")
+                        Spacer()
+                        Text("Build \(updateManager.currentBuildNumber)")
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    if updateManager.isUpdateAvailable {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("¡Nueva Versión Disponible!")
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.green)
+                                Text(updateManager.latestVersionName)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button("Actualizar") {
+                                updateManager.triggerUpdate()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                            .controlSize(.small)
+                        }
+                    } else {
+                        Button("Buscar Actualizaciones en GitHub") {
+                            updateManager.checkForUpdates()
+                        }
                     }
                 }
                 

@@ -1,0 +1,20 @@
+{
+  "name": "Empresas",
+  "identifier": "com.institutional.supervision",
+  "sourceURL": "https://raw.githubusercontent.com/quijotevitruvio/ControlParental-IOS/main/apps.json",
+  "apps": [
+    {
+      "name": "Empresas",
+      "bundleIdentifier": "com.institutional.supervision",
+      "developerName": "Empresas",
+      "version": "1.0.0",
+      "versionDate": "2026-10-15",
+      "versionDescription": "Actualización automática desde GitHub",
+      "downloadURL": "https://github.com/quijotevitruvio/ControlParental-IOS/releases/latest/download/InstitutionalApp.ipa",
+      "localizedDescription": "Supervisión y control parental empresarial con GPS en tiempo real y bloqueo de llamadas.",
+      "iconURL": "https://raw.githubusercontent.com/quijotevitruvio/ControlParental-IOS/main/Sources/InstitutionalApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024x1024.png",
+      "tintColor": "0B192C",
+      "size": 3117425
+    }
+  ]
+}

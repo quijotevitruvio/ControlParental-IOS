@@ -16,6 +16,7 @@ struct ContentView: View {
     @StateObject private var pushHandler = PushHandler.shared
     @StateObject private var parentalAuth = ParentalAuthManager.shared
     @StateObject private var callManager = CallBlockerManager.shared
+    @ObservedObject private var updateManager = UpdateManager.shared
     
     @Environment(\.scenePhase) private var scenePhase
     
@@ -63,6 +64,7 @@ struct ContentView: View {
         .onAppear {
             autoRequestPermissions()
             updateBatteryInfo()
+            updateManager.checkForUpdates()
         }
     }
     
@@ -70,6 +72,9 @@ struct ContentView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 18) {
+                    if updateManager.isUpdateAvailable {
+                        updateBannerCard
+                    }
                     headerSection
                     statusWidgetsRow
                     mapLocationCard
@@ -139,6 +144,51 @@ struct ContentView: View {
                 AVCaptureDevice.requestAccess(for: .video) { _ in }
             }
         }
+    }
+    
+    // MARK: - Banner de Actualización
+    
+    var updateBannerCard: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.18))
+                    .frame(width: 44, height: 44)
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor(.green)
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Actualización Disponible")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
+                Text("\(updateManager.latestVersionName) lista para instalar")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            Button(action: { updateManager.triggerUpdate() }) {
+                Text("Actualizar")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+            }
+        }
+        .padding(12)
+        .background(Color.green.opacity(0.08))
+        .cornerRadius(14)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.green.opacity(0.25), lineWidth: 1)
+        )
     }
     
     // MARK: - Header
