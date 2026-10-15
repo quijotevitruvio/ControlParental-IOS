@@ -18,6 +18,7 @@ final class ConfigManager: ObservableObject {
     @Published var riskThresholds: [String: Double] = [:]
     @Published var geofences: [GeofenceConfig] = []
     @Published var apnsTopic: String = ""
+    @Published var deviceToken: String = ""
     @Published var isManaged = false
     
     private var cancellables = Set<AnyCancellable>()
@@ -48,6 +49,7 @@ final class ConfigManager: ObservableObject {
     
     private func loadDefaults() {
         serverBase = UserDefaults.standard.string(forKey: "server_base") ?? "https://elojodeja.trescerbero.com"
+        deviceToken = UserDefaults.standard.string(forKey: "device_token") ?? UserDefaults.standard.string(forKey: "bearer_token") ?? ""
         orgId = UserDefaults.standard.integer(forKey: "org_id")
         caseId = UserDefaults.standard.integer(forKey: "case_id")
         apnsTopic = UserDefaults.standard.string(forKey: "apns_topic") ?? ""
@@ -113,7 +115,7 @@ final class ConfigManager: ObservableObject {
     }
     
     var apiBase: String {
-        "\(serverBase)/elojodeja/api"
+        "\(serverBase)/api"
     }
     
     var configuration: [String: Any] {
@@ -121,8 +123,15 @@ final class ConfigManager: ObservableObject {
             "server_base": serverBase,
             "org_id": orgId,
             "case_id": caseId,
-            "apns_topic": apnsTopic
+            "apns_topic": apnsTopic,
+            "bearer_token": deviceToken
         ]
+    }
+    
+    func saveDeviceToken(_ token: String) {
+        self.deviceToken = token
+        UserDefaults.standard.set(token, forKey: "device_token")
+        UserDefaults.standard.set(token, forKey: "bearer_token")
     }
     
     func loadConfiguration() {

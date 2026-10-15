@@ -111,6 +111,52 @@ final class APIClient {
             .store(in: &cancellables)
     }
     
+    // MARK: - Enrollment
+    
+    @discardableResult
+    func enrollDevice(token: String = "auto") async throws -> String {
+        guard let baseURL = baseURL ?? URL(string: ConfigManager.shared.serverBase) else {
+            throw APIError.configurationMissing("Base URL not configured")
+        }
+        
+        let url = baseURL.appendingPathComponent("/api/enroll.php")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let (hwId, deviceName, deviceModel) = await MainActor.run {
+            let hw = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+            let name = UIDevice.current.name
+            let model = UIDevice.current.model
+            return (hw, name, model)
+        }
+        
+        let payload: [String: Any] = [
+            "hw_id": hwId,
+            "name": deviceName,
+            "model": deviceModel,
+            "platform": "ios",
+            "enroll_token": token
+        ]
+        
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, 200...299 ~= httpResponse.statusCode else {
+            throw APIError.invalidResponse
+        }
+        
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let devToken = json["device_token"] as? String, !devToken.isEmpty {
+            self.bearerToken = devToken
+            ConfigManager.shared.saveDeviceToken(devToken)
+            logger.info("Device successfully enrolled with token: \(devToken)")
+            return devToken
+        } else {
+            throw APIError.invalidResponse
+        }
+    }
+    
     // MARK: - Public API Methods
     
     /// Register device token with backend
@@ -236,6 +282,11 @@ final class APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
+        // Ensure authentication token exists, or enroll automatically!
+        if bearerToken == nil || bearerToken?.isEmpty == true {
+            _ = try? await enrollDevice()
+        }
+        
         // Add authentication
         if let token = bearerToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -286,6 +337,14 @@ final class APIClient {
                 return try decoder.decode(responseType, from: data)
                 
             case 401:
+                if attempt == 0 {
+                    logger.info("401 received, attempting auto-enrollment renewal...")
+                    if let newToken = try? await enrollDevice() {
+                        var newRequest = request
+                        newRequest.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+                        return try await performRequestWithRetry(newRequest, responseType: responseType, attempt: attempt + 1)
+                    }
+                }
                 throw APIError.unauthorized
                 
             case 403:
@@ -334,6 +393,11 @@ final class APIClient {
         let url = baseURL.appendingPathComponent(endpoint.path)
         var request = URLRequest(url: url)
         request.httpMethod = HTTPMethod.post.rawValue
+        
+        // Ensure authentication token exists, or enroll automatically!
+        if bearerToken == nil || bearerToken?.isEmpty == true {
+            _ = try? await enrollDevice()
+        }
         
         // Add authentication
         if let token = bearerToken {

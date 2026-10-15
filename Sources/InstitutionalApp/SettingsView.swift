@@ -31,6 +31,36 @@ struct SettingsView: View {
                     .buttonStyle(.borderedProminent)
                 }
                 
+                Section(header: Text("Vinculación de Dispositivo")) {
+                    HStack {
+                        Text("Estado")
+                        Spacer()
+                        if !configManager.deviceToken.isEmpty {
+                            Text("Vinculado ✅")
+                                .foregroundColor(.green)
+                        } else {
+                            Text("No vinculado ⚠️")
+                                .foregroundColor(.orange)
+                        }
+                    }
+                    
+                    if !configManager.deviceToken.isEmpty {
+                        HStack {
+                            Text("Token")
+                            Spacer()
+                            Text(String(configManager.deviceToken.prefix(12)) + "...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    Button("Vincular / Re-enrolar con Panel") {
+                        Task {
+                            _ = try? await APIClient.shared.enrollDevice()
+                        }
+                    }
+                }
+                
                 Section(header: Text("Organización")) {
                     HStack {
                         Text("Organización ID")
