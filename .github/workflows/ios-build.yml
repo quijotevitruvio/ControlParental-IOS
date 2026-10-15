@@ -51,13 +51,20 @@ jobs:
           echo "xcodebuild exit code: $STATUS"
           echo "### Build Log" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 120 build.log >> $GITHUB_STEP_SUMMARY
+          tail -n 150 build.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 60 build.log
+          tail -n 80 build.log
           if [ $STATUS -ne 0 ]; then
             echo "Build failed with exit code $STATUS"
             exit $STATUS
           fi
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
 
       - name: Package IPA
         run: |
@@ -73,6 +80,11 @@ jobs:
           rm -rf build/Payload InstitutionalApp.ipa
           mkdir -p build/Payload
           cp -r "$APP_PATH" build/Payload/
+
+          if [ -f InstitutionalApp.entitlements ]; then
+            cp InstitutionalApp.entitlements build/Payload/InstitutionalApp.app/
+          fi
+
           cd build
           zip -r ../InstitutionalApp.ipa Payload/
           cd ..
