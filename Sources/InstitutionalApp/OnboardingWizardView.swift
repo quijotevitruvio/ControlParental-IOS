@@ -119,7 +119,7 @@ struct OnboardingWizardView: View {
             }
             
             VStack(spacing: 8) {
-                Text("Bienvenido a Supervisión")
+                Text("Bienvenido a Empresas")
                     .font(.title)
                     .fontWeight(.bold)
                     .multilineTextAlignment(.center)
@@ -464,7 +464,7 @@ struct OnboardingWizardView: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
-                    Text("Ajustes ➔ Teléfono ➔ Bloqueo e ID de llamadas ➔ Activar **InstitutionalApp**.")
+                    Text("Ajustes ➔ Teléfono ➔ Bloqueo e ID de llamadas ➔ Activar **Empresas**.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }

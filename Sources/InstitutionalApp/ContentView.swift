@@ -82,7 +82,7 @@ struct ContentView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .navigationTitle("Supervisión")
+            .navigationTitle("Empresas")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -155,7 +155,7 @@ struct ContentView: View {
             }
             
             VStack(alignment: .leading, spacing: 3) {
-                Text("Supervisión Activa")
+                Text("Empresas")
                     .font(.headline)
                     .fontWeight(.bold)
                 

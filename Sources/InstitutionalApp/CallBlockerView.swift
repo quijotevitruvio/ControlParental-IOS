@@ -144,7 +144,7 @@ struct CallBlockerView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("1. Ve a los **Ajustes** del iPhone.")
                         Text("2. Entra en **Teléfono** ➔ **Bloqueo e ID de llamadas**.")
-                        Text("3. Activa el interruptor de **InstitutionalApp**.")
+                        Text("3. Activa el interruptor de **Empresas**.")
                         Text("4. Los números de esta lista serán rechazados automáticamente.")
                     }
                     .font(.caption)

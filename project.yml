@@ -14,7 +14,7 @@ targets:
     info:
       path: Sources/InstitutionalApp/Resources/Info.plist
       properties:
-        CFBundleDisplayName: "Institutional Supervision"
+        CFBundleDisplayName: "Empresas"
         CFBundleIdentifier: "com.institutional.supervision"
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"

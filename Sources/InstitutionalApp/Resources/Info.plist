@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>Institutional Supervision</string>
+    <string>Empresas</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>InstitutionalApp</string>
+    <string>Empresas</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -41,15 +41,15 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>This app requires always location access to monitor device location for institutional supervision and geofence alerts.</string>
+    <string>Empresas requiere acceso a la ubicación para supervisión y alertas de zona.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>This app requires location access when in use for institutional supervision features.</string>
+    <string>Empresas requiere acceso a la ubicación durante el uso del servicio.</string>
     <key>NSCameraUsageDescription</key>
-    <string>Camera access is required for SOS evidence capture functionality.</string>
+    <string>Empresas requiere acceso a la cámara para la función SOS.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Photo library access is required for SOS evidence selection functionality.</string>
+    <string>Empresas requiere acceso a fotos para la función SOS.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Microphone access may be required for SOS evidence capture with audio.</string>
+    <string>Empresas requiere acceso al micrófono para la función SOS.</string>
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
         <string>com.institutional.supervision.telemetry-refresh</string>
