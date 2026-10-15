@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Select Latest Stable Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -58,12 +60,15 @@ jobs:
             exit $STATUS
           fi
 
-      - name: Report log to issue on failure
+      - name: Push build log on failure
         if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue create --title "Build Failure Log $(date)" --body-file build.log || true
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git checkout -B build-logs
+          git add -f build.log
+          git commit -m "chore: build failure log" || true
+          git push origin build-logs --force || true
 
       - name: Package IPA
         run: |
