@@ -11,9 +11,19 @@ struct SettingsView: View {
     @StateObject private var configManager = ConfigManager.shared
     @StateObject private var telemetry = TelemetryManager.shared
     @StateObject private var eventLogger = EventLogger.shared
+    @StateObject private var callManager = CallBlockerManager.shared
+    @StateObject private var parentalAuth = ParentalAuthManager.shared
     
     @State private var serverBase = ""
     @State private var showingClearAlert = false
+    @State private var showingChangePin = false
+    @State private var showingCallBlocker = false
+    
+    // Estados para cambio de clave
+    @State private var currentPinInput = ""
+    @State private var newPinInput = ""
+    @State private var pinChangeError: String? = nil
+    @State private var pinChangeSuccess = false
     
     var body: some View {
         NavigationView {
@@ -65,15 +75,48 @@ struct SettingsView: View {
                     HStack {
                         Text("Clave de Bloqueo")
                         Spacer()
-                        Text(ParentalAuthManager.shared.isPinSet ? "Configurada ✅" : "Sin configurar ⚠️")
-                            .foregroundColor(ParentalAuthManager.shared.isPinSet ? .green : .orange)
+                        Text(parentalAuth.isPinSet ? "Configurada ✅" : "Sin configurar ⚠️")
+                            .foregroundColor(parentalAuth.isPinSet ? .green : .orange)
                     }
                     
-                    Button("Bloquear App Ahora") {
-                        ParentalAuthManager.shared.lock()
-                        dismiss()
+                    if parentalAuth.isBiometricsAvailable {
+                        Toggle(isOn: Binding(
+                            get: { parentalAuth.isBiometricsEnabled },
+                            set: { parentalAuth.setBiometricsEnabled($0) }
+                        )) {
+                            Label(parentalAuth.biometryTitle, systemImage: parentalAuth.biometryIconName)
+                        }
+                    }
+                    
+                    Button("Cambiar Clave PIN") {
+                        currentPinInput = ""
+                        newPinInput = ""
+                        pinChangeError = nil
+                        pinChangeSuccess = false
+                        showingChangePin = true
                     }
                     .foregroundColor(.blue)
+                    
+                    Button("Bloquear App Ahora") {
+                        parentalAuth.lock()
+                        dismiss()
+                    }
+                    .foregroundColor(.red)
+                }
+                
+                Section(header: Text("Filtro y Bloqueo de Llamadas")) {
+                    Button(action: { showingCallBlocker = true }) {
+                        HStack {
+                            Label("Lista Negra de Números", systemImage: "phone.down.waves.left.and.right")
+                            Spacer()
+                            Text("\(callManager.blockedNumbers.count)")
+                                .foregroundColor(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .foregroundColor(.primary)
                 }
                 
                 Section(header: Text("Organización")) {
@@ -109,31 +152,12 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    HStack {
-                        Text("Último envío")
-                        Spacer()
-                        Text(TelemetryManager.shared.lastSent?.relativeString ?? "Nunca")
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                Section(header: Text("Diagnóstico")) {
-                    Button("Ver logs de envío") {
-                        // Navegar a logs
-                    }
-                    
-                    Button("Exportar diagnóstico") {
-                        // Exportar logs
-                    }
-                    
-                    Button("Probar conexión") {
-                        Task {
-                            do {
-                                let ok = try await APIClient.shared.testConnection()
-                                // Mostrar alerta
-                            } catch {
-                                // Mostrar error
-                            }
+                    if let lastSent = telemetry.lastSent {
+                        HStack {
+                            Text("Último envío")
+                            Spacer()
+                            Text(lastSent, style: .time)
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
@@ -151,6 +175,61 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Cerrar") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showingCallBlocker) {
+                CallBlockerView()
+            }
+            .sheet(isPresented: $showingChangePin) {
+                NavigationView {
+                    Form {
+                        Section(header: Text("Clave Actual")) {
+                            SecureField("4 dígitos actuales", text: $currentPinInput)
+                                .keyboardType(.numberPad)
+                        }
+                        
+                        Section(header: Text("Nueva Clave")) {
+                            SecureField("4 dígitos nuevos", text: $newPinInput)
+                                .keyboardType(.numberPad)
+                        }
+                        
+                        if let error = pinChangeError {
+                            Text(error)
+                                .foregroundColor(.red)
+                                .font(.caption)
+                        }
+                        
+                        if pinChangeSuccess {
+                            Text("¡Clave actualizada correctamente! ✅")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                        }
+                        
+                        Button("Actualizar Clave") {
+                            pinChangeError = nil
+                            guard newPinInput.count == 4, newPinInput.allSatisfy({ $0.isNumber }) else {
+                                pinChangeError = "La nueva clave debe tener 4 dígitos"
+                                return
+                            }
+                            if parentalAuth.changePin(currentPin: currentPinInput, newPin: newPinInput) {
+                                pinChangeSuccess = true
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                                    showingChangePin = false
+                                }
+                            } else {
+                                pinChangeError = "La clave actual es incorrecta"
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(currentPinInput.count != 4 || newPinInput.count != 4)
+                    }
+                    .navigationTitle("Cambiar Clave")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Cerrar") { showingChangePin = false }
+                        }
+                    }
                 }
             }
             .alert("¿Borrar todos los datos?", isPresented: $showingClearAlert) {

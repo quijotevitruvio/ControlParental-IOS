@@ -1,11 +1,12 @@
 //
 //  ContentView.swift
 //  InstitutionalApp
-//  Pantalla principal de la app institucional.
+//  Pantalla principal de la app institucional con diseño moderno iOS 18 (Glassmorphism).
 //
 
 import SwiftUI
 import AVFoundation
+import MapKit
 
 struct ContentView: View {
     @StateObject private var telemetry = TelemetryManager.shared
@@ -14,16 +15,30 @@ struct ContentView: View {
     @StateObject private var sosManager = SOSManager.shared
     @StateObject private var pushHandler = PushHandler.shared
     @StateObject private var parentalAuth = ParentalAuthManager.shared
+    @StateObject private var callManager = CallBlockerManager.shared
     
     @Environment(\.scenePhase) private var scenePhase
     
     @State private var showingPermissions = false
     @State private var showingSettings = false
+    @State private var showingCallBlocker = false
+    
+    // Batería en tiempo real
+    @State private var batteryLevel: Float = 1.0
+    @State private var isCharging: Bool = false
     
     var body: some View {
         ZStack {
+            // Fondo con degradado sutil
+            LinearGradient(
+                gradient: Gradient(colors: [Color(.systemGroupedBackground), Color(.secondarySystemGroupedBackground)]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+            
             mainDashboard
-                .blur(radius: parentalAuth.isUnlocked ? 0 : 15)
+                .blur(radius: parentalAuth.isUnlocked ? 0 : 20)
                 .disabled(!parentalAuth.isUnlocked)
             
             if !parentalAuth.isUnlocked {
@@ -39,33 +54,46 @@ struct ContentView: View {
         }
         .onAppear {
             autoRequestPermissions()
+            updateBatteryInfo()
         }
     }
     
     private var mainDashboard: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: 18) {
                     headerSection
-                    connectionStatusCard
+                    statusWidgetsRow
+                    mapLocationCard
+                    callBlockerCard
                     permissionsStatusCard
                     telemetryCard
-                    locationCard
                     SOSButtonView()
                     lastSyncCard
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
-            .navigationTitle("Institucional")
+            .navigationTitle("Supervisión")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: { showingPermissions = true }) {
                         Image(systemName: "shield.lefthalf.filled")
+                            .foregroundColor(.blue)
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingSettings = true }) {
-                        Image(systemName: "gear")
+                    HStack(spacing: 12) {
+                        Button(action: { parentalAuth.lock() }) {
+                            Image(systemName: "lock.fill")
+                                .foregroundColor(.red)
+                        }
+                        
+                        Button(action: { showingSettings = true }) {
+                            Image(systemName: "gearshape.fill")
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
             }
@@ -74,6 +102,9 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
+            }
+            .sheet(isPresented: $showingCallBlocker) {
+                CallBlockerView()
             }
             .onAppear {
                 if !TelemetryManager.shared.isUpdating { TelemetryManager.shared.start() }
@@ -84,232 +115,360 @@ struct ContentView: View {
         }
     }
     
+    private func updateBatteryInfo() {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        batteryLevel = UIDevice.current.batteryLevel >= 0 ? UIDevice.current.batteryLevel : 1.0
+        isCharging = (UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full)
+    }
+    
     private func autoRequestPermissions() {
         let hasRequested = UserDefaults.standard.bool(forKey: "has_auto_requested_permissions")
         if !hasRequested {
             UserDefaults.standard.set(true, forKey: "has_auto_requested_permissions")
             Task {
-                // 1. Ubicación
                 LocationManager.shared.requestAlwaysPermission()
-                
-                // 2. Notificaciones
                 _ = await PushHandler.shared.requestPermissions()
-                
-                // 3. Cámara
                 AVCaptureDevice.requestAccess(for: .video) { _ in }
             }
         }
     }
     
+    // MARK: - Header
+    
     var headerSection: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "shield.lefthalf.filled")
-                .font(.system(size: 48))
-                .foregroundColor(.blue)
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.blue.opacity(0.15))
+                    .frame(width: 50, height: 50)
+                Image(systemName: "shield.checkered")
+                    .font(.title2)
+                    .foregroundColor(.blue)
+            }
             
-            Text("Supervisión Institucional")
-                .font(.title2)
-                .fontWeight(.semibold)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Supervisión Activa")
+                    .font(.headline)
+                    .fontWeight(.bold)
+                
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(NetworkMonitor.shared.isConnected ? Color.green : Color.red)
+                        .frame(width: 8, height: 8)
+                    Text(NetworkMonitor.shared.isConnected ? "Conectado al Servidor" : "Modo Offline")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
             
-            Text(ConfigManager.shared.isManaged ? "Gestionado por MDM" : "Modo manual")
-                .font(.caption)
-                .foregroundColor(ConfigManager.shared.isManaged ? .green : .orange)
+            Spacer()
+            
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(ConfigManager.shared.isManaged ? "MDM" : "DIRECTO")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.blue.opacity(0.1))
+                    .foregroundColor(.blue)
+                    .cornerRadius(6)
+                
+                Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "v1.0")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
-        .padding(.top)
+        .padding(14)
+        .background(.ultraThinMaterial)
+        .cornerRadius(16)
+        .shadow(color: .black.opacity(0.04), radius: 5, x: 0, y: 2)
     }
     
-    var connectionStatusCard: some View {
-        CardView {
-            HStack {
-                Circle()
-                    .fill(NetworkMonitor.shared.isConnected ? Color.green : Color.red)
-                    .frame(width: 12, height: 12)
+    // MARK: - Widgets de Estado (Batería y Conectividad)
+    
+    var statusWidgetsRow: some View {
+        HStack(spacing: 12) {
+            // Widget Batería
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 5)
+                        .frame(width: 44, height: 44)
+                    
+                    Circle()
+                        .trim(from: 0, to: CGFloat(max(batteryLevel, 0.05)))
+                        .stroke(batteryColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 44, height: 44)
+                    
+                    if isCharging {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.yellow)
+                    } else {
+                        Text("\(Int(batteryLevel * 100))%")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                }
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(NetworkMonitor.shared.isConnected ? "Conectado" : "Sin conexión")
-                        .font(.headline)
+                    Text("Batería")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(isCharging ? "Cargando" : "\(Int(batteryLevel * 100))% restante")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .cornerRadius(14)
+            .shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 2)
+            
+            // Widget Red
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(NetworkMonitor.shared.isConnected ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: NetworkMonitor.shared.connectionType == .wifi ? "wifi" : "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 18))
+                        .foregroundColor(NetworkMonitor.shared.isConnected ? .green : .red)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Red")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                     Text(NetworkMonitor.shared.connectionTypeDescription)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .cornerRadius(14)
+            .shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 2)
+        }
+    }
+    
+    private var batteryColor: Color {
+        if batteryLevel > 0.5 { return .green }
+        if batteryLevel > 0.2 { return .orange }
+        return .red
+    }
+    
+    // MARK: - Mini Mapa de Ubicación en Tiempo Real
+    
+    var mapLocationCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Ubicación GPS en Vivo", systemImage: "location.fill")
+                    .font(.headline)
+                    .foregroundColor(.blue)
+                
+                Spacer()
+                
+                Circle()
+                    .fill(locationManager.authorizationStatus == .authorizedAlways ? Color.green : Color.orange)
+                    .frame(width: 8, height: 8)
+                
+                Text(locationManager.authorizationStatus == .authorizedAlways ? "Siempre Activo" : "En Uso")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            
+            if let loc = locationManager.lastLocation {
+                // Mini Mapa
+                Map(coordinateRegion: .constant(MKCoordinateRegion(
+                    center: loc.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
+                )), annotationItems: [loc]) { item in
+                    MapMarker(coordinate: item.coordinate, tint: .blue)
+                }
+                .frame(height: 120)
+                .cornerRadius(12)
+                .disabled(true)
+                
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Lat: \(loc.coordinate.latitude, specifier: "%.5f")  Lng: \(loc.coordinate.longitude, specifier: "%.5f")")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                        Text("Margen de precisión: ±\(Int(loc.horizontalAccuracy)) metros")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        LocationManager.shared.startUpdating()
+                        Task { await TelemetryManager.shared.collectAndSendTelemetry() }
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.subheadline)
+                            .padding(8)
+                            .background(Color.blue.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                }
+            } else {
+                HStack {
+                    Image(systemName: "location.slash")
+                        .foregroundColor(.orange)
+                    Text("Obteniendo satélites GPS...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 8)
+            }
+        }
+        .padding(14)
+        .background(.ultraThinMaterial)
+        .cornerRadius(16)
+        .shadow(color: .black.opacity(0.04), radius: 5, x: 0, y: 2)
+    }
+    
+    // MARK: - Tarjeta de Bloqueo de Llamadas
+    
+    var callBlockerCard: some View {
+        Button(action: { showingCallBlocker = true }) {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.purple.opacity(0.15))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "phone.down.waves.left.and.right")
+                        .font(.system(size: 18))
+                        .foregroundColor(.purple)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bloqueador de Llamadas")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    Text("\(callManager.blockedNumbers.count) número(s) en lista negra")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 
                 Spacer()
                 
-                if TelemetryManager.shared.isSending {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                }
+                Image(systemName: "chevron.right")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
+            .padding(14)
+            .background(.ultraThinMaterial)
+            .cornerRadius(16)
+            .shadow(color: .black.opacity(0.04), radius: 5, x: 0, y: 2)
         }
+        .buttonStyle(.plain)
     }
+    
+    // MARK: - Permisos
     
     var permissionsStatusCard: some View {
-        CardView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Permisos Requeridos")
-                    .font(.headline)
-                
-                DashboardPermissionRow(
-                    icon: "location.fill",
-                    title: "Ubicación",
-                    description: LocationManager.shared.authorizationStatus == .authorizedAlways ? "Permiso \"Siempre\" activo ✅" : "Toca para poner \"Siempre\" en Ajustes",
-                    isGranted: LocationManager.shared.authorizationStatus == .authorizedAlways,
-                    action: {
-                        if LocationManager.shared.authorizationStatus == .notDetermined {
-                            LocationManager.shared.requestAlwaysPermission()
-                        } else {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
-                        }
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Protecciones del Sistema")
+                .font(.headline)
+            
+            DashboardPermissionRow(
+                icon: "location.fill",
+                title: "Ubicación",
+                description: locationManager.authorizationStatus == .authorizedAlways ? "Permiso \"Siempre\" activo ✅" : "Toca para poner \"Siempre\" en Ajustes",
+                isGranted: locationManager.authorizationStatus == .authorizedAlways,
+                action: {
+                    if locationManager.authorizationStatus == .notDetermined {
+                        locationManager.requestAlwaysPermission()
+                    } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
                     }
-                )
-                
-                DashboardPermissionRow(
-                    icon: "camera.fill",
-                    title: "Cámara",
-                    description: "Para botón SOS con foto",
-                    isGranted: true,
-                    action: {}
-                )
-                
-                DashboardPermissionRow(
-                    icon: "photo.fill",
-                    title: "Fotos",
-                    description: "Para SOS con foto de galería",
-                    isGranted: true,
-                    action: {}
-                )
-                
-                DashboardPermissionRow(
-                    icon: "bell.fill",
-                    title: "Notificaciones",
-                    description: "Alertas SOS y comandos silenciosos",
-                    isGranted: true,
-                    action: { Task { _ = await PushHandler.shared.requestPermissions() } }
-                )
-                
-                if #available(iOS 16.0, *) {
-                    DashboardPermissionRow(
-                        icon: "chart.bar.fill",
-                        title: "Tiempo de Uso",
-                        description: "Screen Time agregado (DeviceActivity)",
-                        isGranted: DeviceActivityManager.shared.isMonitoring,
-                        action: { DeviceActivityManager.shared.startMonitoring() }
-                    )
                 }
-                
-                Button(action: { }) {
-                    Text("Gestionar Permisos")
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
+            )
+            
+            DashboardPermissionRow(
+                icon: "bell.fill",
+                title: "Notificaciones",
+                description: "Alertas y sincronización silenciosa",
+                isGranted: true,
+                action: { Task { _ = await PushHandler.shared.requestPermissions() } }
+            )
+            
+            DashboardPermissionRow(
+                icon: "camera.fill",
+                title: "Cámara SOS",
+                description: "Para evidencia fotográfica de pánico",
+                isGranted: true,
+                action: {}
+            )
         }
+        .padding(14)
+        .background(.ultraThinMaterial)
+        .cornerRadius(16)
+        .shadow(color: .black.opacity(0.04), radius: 5, x: 0, y: 2)
     }
+    
+    // MARK: - Telemetría
     
     var telemetryCard: some View {
-        CardView {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Telemetría")
-                        .font(.headline)
-                    Spacer()
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Transmisión al Panel")
+                    .font(.headline)
+                Spacer()
+                if telemetry.isSending {
                     ProgressView().scaleEffect(0.7)
-                        .opacity(TelemetryManager.shared.isUpdating ? 1 : 0)
                 }
-                
-                HStack(spacing: 20) {
-                    StatItem(label: "Último envío", value: TelemetryManager.shared.lastSent?.relativeString ?? "Nunca")
-                    StatItem(label: "Eventos pendientes", value: String(EventLogger.shared.pendingCount))
-                }
-                
-                Button(action: { Task { await TelemetryManager.shared.flushEvents() } }) {
-                    Text("Enviar Ahora")
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
-        }
-    }
-    
-    var locationCard: some View {
-        CardView {
-            VStack(alignment: .leading, spacing: 8) {
+            
+            HStack(spacing: 20) {
+                StatItem(label: "Último Envío", value: telemetry.lastSent?.relativeString ?? "Al iniciar")
+                StatItem(label: "En Cola", value: "\(EventLogger.shared.pendingCount)")
+            }
+            
+            Button(action: { Task { await telemetry.flushEvents() } }) {
                 HStack {
-                    Text("Ubicación")
-                        .font(.headline)
                     Spacer()
-                    Circle()
-                        .fill(LocationManager.shared.authorizationStatus == .authorizedAlways ? Color.green : Color.orange)
-                        .frame(width: 10, height: 10)
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Text("Sincronizar Ahora")
+                        .fontWeight(.semibold)
+                    Spacer()
                 }
-                
-                if let loc = LocationManager.shared.lastLocation {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Lat: \(loc.coordinate.latitude, specifier: "%.6f")")
-                        Text("Lng: \(loc.coordinate.longitude, specifier: "%.6f")")
-                        Text("Precisión: \(Int(loc.horizontalAccuracy))m")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                } else {
-                    Text("Sin ubicación disponible")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                HStack {
-                    Button("Actualizar") {
-                        LocationManager.shared.startUpdating()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    
-                    Button("Geocercas") { }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
+                .font(.subheadline)
+                .padding(.vertical, 8)
             }
+            .buttonStyle(.bordered)
+            .tint(.blue)
         }
+        .padding(14)
+        .background(.ultraThinMaterial)
+        .cornerRadius(16)
+        .shadow(color: .black.opacity(0.04), radius: 5, x: 0, y: 2)
     }
     
     var lastSyncCard: some View {
-        CardView {
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("Última sincronización")
-                        .font(.subheadline)
-                    Text(TelemetryManager.shared.lastSent?.relativeString ?? "Nunca")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                if EventLogger.shared.pendingCount > 0 {
-                    Text("\(EventLogger.shared.pendingCount) pendientes")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                }
-            }
+        HStack {
+            Image(systemName: "clock.arrow.circlepath")
+                .foregroundColor(.secondary)
+            Text("Sincronización automática activa cada 15 min")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Spacer()
         }
+        .padding(.horizontal, 4)
     }
 }
 
-struct CardView<Content: View>: View {
-    let content: () -> Content
-    init(@ViewBuilder content: @escaping () -> Content) { self.content = content }
-    var body: some View {
-        content()
-            .padding()
-            .background(Color(.secondarySystemGroupedBackground))
-            .cornerRadius(12)
-            .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+// Extensión para que CLLocation sea Identifiable en MapKit
+extension CLLocation: Identifiable {
+    public var id: String {
+        "\(coordinate.latitude),\(coordinate.longitude)"
     }
 }
 
@@ -318,8 +477,8 @@ struct StatItem: View {
     let value: String
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.caption).foregroundColor(.secondary)
-            Text(value).font(.subheadline).fontWeight(.medium)
+            Text(label).font(.caption2).foregroundColor(.secondary)
+            Text(value).font(.subheadline).fontWeight(.bold)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -332,19 +491,22 @@ struct DashboardPermissionRow: View {
     let isGranted: Bool
     let action: () -> Void
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundColor(isGranted ? .green : .orange)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline)
-                Text(description).font(.caption).foregroundColor(.secondary)
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundColor(isGranted ? .blue : .orange)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.subheadline).fontWeight(.medium).foregroundColor(.primary)
+                    Text(description).font(.caption).foregroundColor(.secondary)
+                }
+                Spacer()
+                Image(systemName: isGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundColor(isGranted ? .green : .orange)
             }
-            Spacer()
-            Image(systemName: isGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundColor(isGranted ? .green : .orange)
         }
+        .buttonStyle(.plain)
     }
 }
 
