@@ -79,15 +79,6 @@ struct SettingsView: View {
                             .foregroundColor(parentalAuth.isPinSet ? .green : .orange)
                     }
                     
-                    if parentalAuth.isBiometricsAvailable {
-                        Toggle(isOn: Binding(
-                            get: { parentalAuth.isBiometricsEnabled },
-                            set: { parentalAuth.setBiometricsEnabled($0) }
-                        )) {
-                            Label(parentalAuth.biometryTitle, systemImage: parentalAuth.biometryIconName)
-                        }
-                    }
-                    
                     Button("Cambiar Clave PIN") {
                         currentPinInput = ""
                         newPinInput = ""

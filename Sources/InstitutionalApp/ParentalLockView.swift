@@ -63,13 +63,6 @@ struct ParentalLockView: View {
                     .padding(.bottom, 30)
             }
         }
-        .onAppear {
-            if auth.isPinSet && auth.isBiometricsEnabled && auth.isBiometricsAvailable {
-                Task {
-                    _ = await auth.authenticateWithBiometrics()
-                }
-            }
-        }
     }
     
     private var currentInput: String {
@@ -108,19 +101,13 @@ struct ParentalLockView: View {
             }
             
             HStack(spacing: 24) {
-                // Botón volver o biometría (Face ID / Touch ID)
+                // Botón volver en modo confirmación
                 if !auth.isPinSet && isConfirming {
                     KeypadButton(icon: "arrow.uturn.backward") {
                         isConfirming = false
                         confirmPin = ""
                         pin = ""
                         errorMessage = nil
-                    }
-                } else if auth.isPinSet && auth.isBiometricsEnabled && auth.isBiometricsAvailable {
-                    KeypadButton(icon: auth.biometryIconName) {
-                        Task {
-                            _ = await auth.authenticateWithBiometrics()
-                        }
                     }
                 } else {
                     Color.clear
