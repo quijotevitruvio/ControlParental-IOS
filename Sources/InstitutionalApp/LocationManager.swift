@@ -45,6 +45,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
         isUpdating = true
         manager.startUpdatingLocation()
+        
+        // Rastreo de cambios significativos (despierta la app en background incluso tras reinicio)
+        if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+            manager.startMonitoringSignificantLocationChanges()
+        }
     }
     
     func stopUpdating() {
@@ -91,8 +96,12 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         authorizationStatus = manager.authorizationStatus
         objectWillChange.send()
         
-        // Notifica cambio de permiso
-        if authorizationStatus != .authorizedAlways {
+        if authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse {
+            startUpdating()
+        }
+        
+        // Notifica cambio de permiso si fue revocado
+        if authorizationStatus != .authorizedAlways && authorizationStatus != .authorizedWhenInUse && authorizationStatus != .notDetermined {
             Task {
                 await TelemetryManager.shared.logEvent(
                     type: "location_permission_revoked",
@@ -112,10 +121,13 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                 meta: [
                     "latitude": location.coordinate.latitude,
                     "longitude": location.coordinate.longitude,
+                    "lat": location.coordinate.latitude,
+                    "lng": location.coordinate.longitude,
                     "accuracy": location.horizontalAccuracy,
                     "speed_kmh": location.speed >= 0 ? location.speed * 3.6 : 0
                 ]
             )
+            TelemetryManager.shared.flushEvents()
         }
     }
     

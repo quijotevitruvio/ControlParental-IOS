@@ -77,7 +77,7 @@ struct ContentView: View {
             }
             .onAppear {
                 if !TelemetryManager.shared.isUpdating { TelemetryManager.shared.start() }
-                if LocationManager.shared.authorizationStatus == .authorizedAlways {
+                if LocationManager.shared.authorizationStatus == .authorizedAlways || LocationManager.shared.authorizationStatus == .authorizedWhenInUse {
                     LocationManager.shared.startUpdating()
                 }
             }
@@ -152,9 +152,17 @@ struct ContentView: View {
                 DashboardPermissionRow(
                     icon: "location.fill",
                     title: "Ubicación",
-                    description: "Permiso \"Siempre\" para ubicación continua",
+                    description: LocationManager.shared.authorizationStatus == .authorizedAlways ? "Permiso \"Siempre\" activo ✅" : "Toca para poner \"Siempre\" en Ajustes",
                     isGranted: LocationManager.shared.authorizationStatus == .authorizedAlways,
-                    action: { LocationManager.shared.requestAlwaysPermission() }
+                    action: {
+                        if LocationManager.shared.authorizationStatus == .notDetermined {
+                            LocationManager.shared.requestAlwaysPermission()
+                        } else {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                    }
                 )
                 
                 DashboardPermissionRow(
