@@ -135,6 +135,7 @@ struct ContentView: View {
     }
     
     private func autoRequestPermissions() {
+        guard hasCompletedOnboarding else { return }
         let hasRequested = UserDefaults.standard.bool(forKey: "has_auto_requested_permissions")
         if !hasRequested {
             UserDefaults.standard.set(true, forKey: "has_auto_requested_permissions")

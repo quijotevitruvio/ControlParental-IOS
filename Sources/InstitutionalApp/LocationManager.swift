@@ -31,8 +31,20 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
     
     func requestAlwaysPermission() {
-        guard authorizationStatus == .notDetermined else { return }
-        manager.requestAlwaysAuthorization()
+        if authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+            manager.requestAlwaysAuthorization()
+        } else if authorizationStatus == .authorizedWhenInUse {
+            manager.requestAlwaysAuthorization()
+        }
+    }
+    
+    func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            DispatchQueue.main.async {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+        }
     }
     
     func startUpdating() {

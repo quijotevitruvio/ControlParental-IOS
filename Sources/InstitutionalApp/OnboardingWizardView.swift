@@ -313,24 +313,83 @@ struct OnboardingWizardView: View {
             .cornerRadius(14)
             .padding(.horizontal, 10)
             
-            Button(action: {
-                if locationManager.authorizationStatus == .notDetermined {
-                    locationManager.requestAlwaysPermission()
-                } else if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
+            if locationManager.authorizationStatus == .authorizedAlways {
+                VStack(spacing: 10) {
+                    HStack {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.title)
+                            .foregroundColor(.green)
+                        Text("¡Ubicación 'Siempre' Activa!")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.green)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.green.opacity(0.12))
+                    .cornerRadius(12)
+                    
+                    Button(action: {
+                        withAnimation { currentStep = 4 }
+                    }) {
+                        HStack {
+                            Text("Continuar al Siguiente Paso")
+                                .fontWeight(.bold)
+                            Image(systemName: "arrow.right")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
                 }
-            }) {
-                HStack {
-                    Image(systemName: locationManager.authorizationStatus == .authorizedAlways ? "checkmark.circle.fill" : "location.circle.fill")
-                    Text(locationManager.authorizationStatus == .authorizedAlways ? "¡Permiso Siempre Concedido!" : "Activar Ubicación Siempre")
-                        .fontWeight(.bold)
+                .padding(.horizontal, 10)
+            } else if locationManager.authorizationStatus == .notDetermined {
+                Button(action: {
+                    LocationManager.shared.requestAlwaysPermission()
+                }) {
+                    HStack {
+                        Image(systemName: "location.circle.fill")
+                        Text("Solicitar Permiso de Ubicación")
+                            .fontWeight(.bold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .padding(.horizontal, 10)
+            } else {
+                // Está en authorizedWhenInUse o denegado
+                VStack(spacing: 12) {
+                    Button(action: {
+                        LocationManager.shared.openSettings()
+                    }) {
+                        HStack {
+                            Image(systemName: "gearshape.fill")
+                            Text("Abrir Ajustes del iPhone (Poner 'Siempre')")
+                                .fontWeight(.bold)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                    
+                    Button(action: {
+                        LocationManager.shared.requestAlwaysPermission()
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Reintentar Diálogo en Pantalla")
+                                .font(.subheadline)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.blue)
+                }
+                .padding(.horizontal, 10)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(locationManager.authorizationStatus == .authorizedAlways ? .green : .blue)
-            .padding(.horizontal, 10)
         }
     }
     
