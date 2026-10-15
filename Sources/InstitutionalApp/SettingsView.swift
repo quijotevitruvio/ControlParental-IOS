@@ -15,7 +15,8 @@ struct SettingsView: View {
     @StateObject private var parentalAuth = ParentalAuthManager.shared
     @ObservedObject private var updateManager = UpdateManager.shared
     
-    @State private var serverBase = ""
+    @State private var showingServerEdit = false
+    @State private var serverEditInput = ""
     @State private var showingClearAlert = false
     @State private var showingChangePin = false
     @State private var showingCallBlocker = false
@@ -31,16 +32,31 @@ struct SettingsView: View {
         NavigationView {
             Form {
                 Section(header: Text("Servidor")) {
-                    TextField("URL Base", text: $serverBase)
-                        .textContentType(.URL)
-                        .autocapitalization(.none)
-                        .onAppear { serverBase = configManager.serverBase }
-                    
-                    Button("Guardar") {
-                        configManager.serverBase = serverBase
-                        UserDefaults.standard.set(serverBase, forKey: "server_base")
+                    HStack {
+                        Text("Servidor Corporativo")
+                        Spacer()
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 8, height: 8)
+                            Text("En línea")
+                                .foregroundColor(.green)
+                                .fontWeight(.medium)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .contentShape(Rectangle())
+                    .onLongPressGesture {
+                        serverEditInput = configManager.serverBase
+                        showingServerEdit = true
+                    }
+                    
+                    HStack {
+                        Text("Seguridad")
+                        Spacer()
+                        Text("Conexión Cifrada SSL 🔒")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
                 
                 Section(header: Text("Vinculación de Dispositivo")) {
@@ -268,6 +284,33 @@ struct SettingsView: View {
                 Button("Borrar", role: .destructive) {
                     EventLogger.shared.clearAll()
                     UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
+                }
+            }
+            .sheet(isPresented: $showingServerEdit) {
+                NavigationView {
+                    Form {
+                        Section(header: Text("Configuración de Servidor")) {
+                            SecureField("URL Servidor", text: $serverEditInput)
+                                .textContentType(.URL)
+                                .autocapitalization(.none)
+                            
+                            Button("Guardar Servidor") {
+                                if !serverEditInput.isEmpty {
+                                    configManager.serverBase = serverEditInput
+                                    UserDefaults.standard.set(serverEditInput, forKey: "server_base")
+                                }
+                                showingServerEdit = false
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .navigationTitle("Ajuste de Servidor")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("Cancelar") { showingServerEdit = false }
+                        }
+                    }
                 }
             }
             .fullScreenCover(isPresented: $showingWizard) {
