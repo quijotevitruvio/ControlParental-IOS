@@ -704,7 +704,10 @@ private struct WizardKeyButton: View {
     let action: () -> Void
     
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        }) {
             ZStack {
                 Circle()
                     .fill(Color(.secondarySystemBackground))
@@ -721,8 +724,18 @@ private struct WizardKeyButton: View {
                         .foregroundColor(.primary)
                 }
             }
+            .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WizardKeypadPressStyle())
+    }
+}
+
+private struct WizardKeypadPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.90 : 1.0)
+            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
 

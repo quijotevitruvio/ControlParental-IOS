@@ -36,6 +36,10 @@ struct ContentView: View {
                 OnboardingWizardView(isCompleted: $hasCompletedOnboarding)
                     .transition(.opacity)
                     .zIndex(2)
+            } else if !parentalAuth.isUnlocked {
+                ParentalLockView()
+                    .transition(.opacity)
+                    .zIndex(1)
             } else {
                 // Fondo con degradado sutil
                 LinearGradient(
@@ -46,14 +50,6 @@ struct ContentView: View {
                 .ignoresSafeArea()
                 
                 mainDashboard
-                    .blur(radius: parentalAuth.isUnlocked ? 0 : 20)
-                    .disabled(!parentalAuth.isUnlocked)
-                
-                if !parentalAuth.isUnlocked {
-                    ParentalLockView()
-                        .transition(.opacity)
-                        .zIndex(1)
-                }
             }
         }
         .onChange(of: scenePhase) { newPhase in

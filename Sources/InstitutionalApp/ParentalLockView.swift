@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ParentalLockView: View {
     @ObservedObject private var auth = ParentalAuthManager.shared
@@ -7,60 +8,78 @@ struct ParentalLockView: View {
     @State private var confirmPin: String = ""
     @State private var isConfirming: Bool = false
     @State private var errorMessage: String? = nil
+    @State private var shakeOffset: CGFloat = 0
     
     var body: some View {
         ZStack {
             Color(.systemBackground)
                 .ignoresSafeArea()
             
-            VStack(spacing: 30) {
-                Spacer()
+            VStack(spacing: 0) {
+                Spacer(minLength: 12)
                 
-                // Icono y Títulos
-                Image(systemName: auth.isPinSet ? "lock.shield.fill" : "key.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 60, height: 60)
-                    .foregroundColor(.accentColor)
+                // Icono decorativo
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.12))
+                        .frame(width: 56, height: 56)
+                    Image(systemName: auth.isPinSet ? "lock.shield.fill" : "key.fill")
+                        .font(.system(size: 26))
+                        .foregroundColor(.blue)
+                }
+                .padding(.bottom, 12)
                 
-                VStack(spacing: 8) {
+                // Título y Subtítulo
+                VStack(spacing: 6) {
                     Text(titleText)
                         .font(.title2)
                         .fontWeight(.bold)
+                        .multilineTextAlignment(.center)
                     
                     Text(subtitleText)
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
+                        .padding(.horizontal, 32)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(.bottom, 16)
                 
-                // Indicador de 4 dígitos
-                HStack(spacing: 20) {
+                // Indicador de 4 dígitos (con animación shake)
+                HStack(spacing: 18) {
                     ForEach(0..<4) { index in
                         Circle()
-                            .fill(index < currentInput.count ? Color.accentColor : Color.secondary.opacity(0.3))
-                            .frame(width: 18, height: 18)
+                            .fill(index < currentInput.count ? Color.blue : Color.secondary.opacity(0.25))
+                            .frame(width: 16, height: 16)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                            )
                     }
                 }
-                .padding(.vertical, 10)
+                .offset(x: shakeOffset)
+                .padding(.bottom, 10)
                 
+                // Mensaje de Error
                 if let error = errorMessage {
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
                         .fontWeight(.semibold)
+                        .padding(.horizontal, 20)
+                        .frame(height: 20)
                 } else {
                     Text(" ")
                         .font(.caption)
+                        .frame(height: 20)
                 }
                 
-                Spacer()
+                Spacer(minLength: 12)
                 
                 // Teclado Numérico
                 numericKeypad
-                    .padding(.horizontal, 40)
-                    .padding(.bottom, 30)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 24)
             }
         }
     }
@@ -81,16 +100,16 @@ struct ParentalLockView: View {
         if !auth.isPinSet {
             return isConfirming
                 ? "Introduce de nuevo los 4 dígitos para verificarla"
-                : "Configura una clave de 4 dígitos (distinta a la de tu iPhone) para bloquear y administrar la app"
+                : "Configura una clave de 4 dígitos para bloquear y administrar la app"
         } else {
-            return "Introduce la clave de 4 dígitos para acceder al panel de supervisión"
+            return "Introduce la clave de 4 dígitos para acceder al panel"
         }
     }
     
     private var numericKeypad: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             ForEach(0..<3) { row in
-                HStack(spacing: 24) {
+                HStack(spacing: 20) {
                     ForEach(1..<4) { col in
                         let number = row * 3 + col
                         KeypadButton(text: "\(number)") {
@@ -100,7 +119,7 @@ struct ParentalLockView: View {
                 }
             }
             
-            HStack(spacing: 24) {
+            HStack(spacing: 20) {
                 // Botón volver en modo confirmación
                 if !auth.isPinSet && isConfirming {
                     KeypadButton(icon: "arrow.uturn.backward") {
@@ -111,7 +130,7 @@ struct ParentalLockView: View {
                     }
                 } else {
                     Color.clear
-                        .frame(width: 75, height: 75)
+                        .frame(width: 66, height: 66)
                 }
                 
                 KeypadButton(text: "0") {
@@ -129,7 +148,7 @@ struct ParentalLockView: View {
         errorMessage = nil
         
         if !auth.isPinSet {
-            // Modo Configuración
+            // Modo Configuración inicial
             if !isConfirming {
                 if pin.count < 4 {
                     pin.append(digit)
@@ -146,7 +165,7 @@ struct ParentalLockView: View {
                         if confirmPin == pin {
                             _ = auth.setPin(pin)
                         } else {
-                            errorMessage = "Las claves no coinciden. Intenta de nuevo."
+                            triggerErrorShake(message: "Las claves no coinciden. Intenta de nuevo.")
                             confirmPin = ""
                             pin = ""
                             isConfirming = false
@@ -161,8 +180,10 @@ struct ParentalLockView: View {
                 if pin.count == 4 {
                     let valid = auth.verifyPin(pin)
                     if !valid {
-                        errorMessage = "Clave incorrecta"
-                        pin = ""
+                        triggerErrorShake(message: "Clave incorrecta")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            pin = ""
+                        }
                     }
                 }
             }
@@ -177,32 +198,57 @@ struct ParentalLockView: View {
             if !pin.isEmpty { pin.removeLast() }
         }
     }
+    
+    private func triggerErrorShake(message: String) {
+        errorMessage = message
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        withAnimation(Animation.default.repeatCount(4, autoreverses: true).speed(4)) {
+            shakeOffset = 10
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            shakeOffset = 0
+        }
+    }
 }
 
+// Botón de teclado con retroalimentación háptica y estilo visual al pulsar
 private struct KeypadButton: View {
     var text: String? = nil
     var icon: String? = nil
     let action: () -> Void
     
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        }) {
             ZStack {
                 Circle()
                     .fill(Color(.secondarySystemBackground))
-                    .frame(width: 75, height: 75)
+                    .frame(width: 66, height: 66)
                 
                 if let text = text {
                     Text(text)
-                        .font(.title)
-                        .fontWeight(.medium)
+                        .font(.title2)
+                        .fontWeight(.semibold)
                         .foregroundColor(.primary)
                 } else if let icon = icon {
                     Image(systemName: icon)
-                        .font(.title2)
+                        .font(.title3)
                         .foregroundColor(.primary)
                 }
             }
+            .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(KeypadPressStyle())
+    }
+}
+
+private struct KeypadPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.90 : 1.0)
+            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
