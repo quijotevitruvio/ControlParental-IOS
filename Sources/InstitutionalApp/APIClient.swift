@@ -1,4 +1,6 @@
 import Foundation
+import UIKit
+import CoreLocation
 import Combine
 import OSLog
 
@@ -132,7 +134,19 @@ final class APIClient {
     
     func uploadMedia(data: Data, type: String, meta: [String: Any]) async throws -> Bool {
         let endpoint = Endpoint.upload
-        _ = try await uploadMultipart(endpoint, evidence: SOSEvidence(data: data, type: String(describing: type), metadata: meta))
+        let lat = meta["latitude"] as? Double
+        let lon = meta["longitude"] as? Double
+        let acc = meta["accuracy"] as? Double
+        let loc = (lat != nil && lon != nil) ? CLLocationCoordinate2D(latitude: lat!, longitude: lon!) : nil
+        let evidence = SOSEvidence(
+            mediaData: data,
+            filename: "sos_capture.jpg",
+            mimeType: "image/jpeg",
+            timestamp: Date(),
+            location: loc,
+            horizontalAccuracy: acc
+        )
+        _ = try await uploadMultipart(endpoint, evidence: evidence)
         return true
     }
     
@@ -197,6 +211,14 @@ final class APIClient {
     }
     
     // MARK: - Core Request Methods
+    
+    private func request<R: Decodable>(
+        _ endpoint: Endpoint,
+        method: HTTPMethod,
+        responseType: R.Type
+    ) async throws -> R {
+        return try await request(endpoint, method: method, body: nil as String?, responseType: responseType)
+    }
     
     private func request<T: Encodable, R: Decodable>(
         _ endpoint: Endpoint,
@@ -338,7 +360,7 @@ final class APIClient {
             "timestamp": ISO8601DateFormatter().string(from: evidence.timestamp),
             "latitude": String(evidence.location?.latitude ?? 0),
             "longitude": String(evidence.location?.longitude ?? 0),
-            "accuracy": String(evidence.location?.horizontalAccuracy ?? 0),
+            "accuracy": String(evidence.horizontalAccuracy ?? 0),
             "event_type": "sos_button"
         ]
         
@@ -360,7 +382,7 @@ final class APIClient {
         body.append("--\(boundary)--\r\n")
         request.httpBody = body
         
-        logger.debug("Uploading SOS evidence: \(evidence.filename), size: \(mediaData?.count ?? 0) bytes")
+        logger.debug("Uploading SOS evidence: \(evidence.filename), size: \(evidence.mediaData?.count ?? 0) bytes")
         
         let (data, response) = try await session.data(for: request)
         
@@ -405,6 +427,7 @@ private enum Endpoint {
     case upload
     case policy
     case geofences
+    case version
     
     var path: String {
         switch self {
@@ -413,6 +436,7 @@ private enum Endpoint {
         case .upload: return "/api/upload.php"
         case .policy: return "/api/policy.php"
         case .geofences: return "/api/geofences.php"
+        case .version: return "/api/telemetry.php"
         }
     }
 }

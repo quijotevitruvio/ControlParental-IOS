@@ -115,4 +115,17 @@ final class ConfigManager: ObservableObject {
     var apiBase: String {
         "\(serverBase)/elojodeja/api"
     }
+    
+    var configuration: [String: Any] {
+        return [
+            "server_base": serverBase,
+            "org_id": orgId,
+            "case_id": caseId,
+            "apns_topic": apnsTopic
+        ]
+    }
+    
+    func loadConfiguration() {
+        reloadFromMDM()
+    }
 }

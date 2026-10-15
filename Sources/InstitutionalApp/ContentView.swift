@@ -106,7 +106,7 @@ struct ContentView: View {
                 Text("Permisos Requeridos")
                     .font(.headline)
                 
-                PermissionRow(
+                DashboardPermissionRow(
                     icon: "location.fill",
                     title: "Ubicación",
                     description: "Permiso \"Siempre\" para ubicación continua",
@@ -114,7 +114,7 @@ struct ContentView: View {
                     action: { LocationManager.shared.requestAlwaysPermission() }
                 )
                 
-                PermissionRow(
+                DashboardPermissionRow(
                     icon: "camera.fill",
                     title: "Cámara",
                     description: "Para botón SOS con foto",
@@ -122,7 +122,7 @@ struct ContentView: View {
                     action: {}
                 )
                 
-                PermissionRow(
+                DashboardPermissionRow(
                     icon: "photo.fill",
                     title: "Fotos",
                     description: "Para SOS con foto de galería",
@@ -130,16 +130,16 @@ struct ContentView: View {
                     action: {}
                 )
                 
-                PermissionRow(
+                DashboardPermissionRow(
                     icon: "bell.fill",
                     title: "Notificaciones",
                     description: "Alertas SOS y comandos silenciosos",
                     isGranted: true,
-                    action: { PushHandler.shared.requestPermissions() }
+                    action: { Task { _ = await PushHandler.shared.requestPermissions() } }
                 )
                 
                 if #available(iOS 16.0, *) {
-                    PermissionRow(
+                    DashboardPermissionRow(
                         icon: "chart.bar.fill",
                         title: "Tiempo de Uso",
                         description: "Screen Time agregado (DeviceActivity)",
@@ -200,8 +200,8 @@ struct ContentView: View {
                 
                 if let loc = LocationManager.shared.lastLocation {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Lat: \(loc.coordinate.latitude, specifier: %.6f)")
-                        Text("Lng: \(loc.coordinate.longitude, specifier: %.6f)")
+                        Text("Lat: \(loc.coordinate.latitude, specifier: "%.6f")")
+                        Text("Lng: \(loc.coordinate.longitude, specifier: "%.6f")")
                         Text("Precisión: \(Int(loc.horizontalAccuracy))m")
                     }
                     .font(.caption)
@@ -274,7 +274,7 @@ struct StatItem: View {
     }
 }
 
-struct PermissionRow: View {
+struct DashboardPermissionRow: View {
     let icon: String
     let title: String
     let description: String

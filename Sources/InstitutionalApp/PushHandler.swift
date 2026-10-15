@@ -88,9 +88,14 @@ final class PushHandler: NSObject, ObservableObject, UNUserNotificationCenterDel
         }
     }
     
+    func processSilentPush(_ userInfo: [AnyHashable: Any], _ completion: @escaping (Result<Void, Error>) -> Void = { _ in }) {
+        handleSilentPush(userInfo: userInfo)
+        completion(.success(()))
+    }
+    
     // MARK: - Silent Push Handling
     
-    private func handleSilentPush(userInfo: [AnyHashable: Any]) {
+    func handleSilentPush(userInfo: [AnyHashable: Any]) {
         guard let command = userInfo["command"] as? String else { return }
         
         switch command {
@@ -162,5 +167,6 @@ final class PushHandler: NSObject, ObservableObject, UNUserNotificationCenterDel
 
 extension Notification.Name {
     static let sosAcknowledged = Notification.Name("sosAcknowledged")
-    static let institutionalSilentPush = Notification.Name("institucionalSilentPush")
+    static let institutionalSilentPush = Notification.Name("institutionalSilentPush")
+    static let institucionalSilentPush = Notification.Name("institucionalSilentPush")
 }

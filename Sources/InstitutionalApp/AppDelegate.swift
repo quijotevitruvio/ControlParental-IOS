@@ -58,7 +58,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         
         // Send device token to backend
         Task {
-            await apiClient.registerDeviceToken(tokenString)
+            do {
+                try await apiClient.registerDeviceToken(tokenString)
+            } catch {
+                logger.error("Failed to register device token: \(error.localizedDescription)")
+            }
         }
     }
     
@@ -245,5 +249,4 @@ extension Notification.Name {
     static let configShouldRefresh = Notification.Name("com.institutional.supervision.configShouldRefresh")
     static let deviceTokenReceived = Notification.Name("com.institutional.supervision.deviceTokenReceived")
     static let locationPermissionChanged = Notification.Name("com.institutional.supervision.locationPermissionChanged")
-    static let networkStatusChanged = Notification.Name("com.institutional.supervision.networkStatusChanged")
 }

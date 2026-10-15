@@ -197,13 +197,11 @@ final class TelemetryManager: ObservableObject {
         flushEvents()
     }
     
+    func scheduleDailyProcessing() {
+        scheduleProcessingTask()
+    }
+    
     func saveState() {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "telemetry_last_state")
     }
-}
-
-// MARK: - Extensiones para notificaciones
-
-extension Notification.Name {
-    static let institucionalSilentPush = Notification.Name("institucionalSilentPush")
 }
