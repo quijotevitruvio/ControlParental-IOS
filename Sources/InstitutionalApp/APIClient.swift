@@ -130,7 +130,7 @@ final class APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
         let (hwId, deviceName, deviceModel) = await MainActor.run {
-            let hw = UIDevice.current.identifierForVendor?.uuidString.lowercased() ?? UUID().uuidString.lowercased()
+            let hw = ConfigManager.shared.hardwareID
             let name = UIDevice.current.name.isEmpty ? "iPhone" : UIDevice.current.name
             let model = UIDevice.currentModelCommercial
             return (hw, name, model)
@@ -164,42 +164,70 @@ final class APIClient {
     
     // MARK: - Public API Methods
     
-    /// Register device token with backend
+    /// Register device token (APNs/FCM) with backend via /api/telemetry.php
     func registerDeviceToken(_ token: String) async throws {
-        let endpoint = Endpoint.registerDeviceToken
-        let payload = DeviceTokenPayload(token: token, orgId: orgID, caseId: caseID)
-        try await request(endpoint, method: .post, body: payload, responseType: EmptyResponse.self)
+        ConfigManager.shared.saveApnsToken(token)
+        _ = try await sendTelemetry([
+            "fcm_token": token,
+            "apns_token": token,
+            "platform": "ios"
+        ])
+        logger.info("Registered APNs/FCM token successfully with telemetry: \(token)")
+    }
+    
+    func registerDeviceToken(_ token: String, completion: ((Result<Void, Error>) -> Void)? = nil) {
+        Task {
+            do {
+                try await registerDeviceToken(token)
+                completion?(.success(()))
+            } catch {
+                completion?(.failure(error))
+            }
+        }
     }
     
     func updateDeviceToken(_ token: String) async throws {
         try await registerDeviceToken(token)
     }
     
+    @discardableResult
     func sendInstitutionEvents(_ events: [[String: Any]]) async throws -> Bool {
         guard !events.isEmpty else { return true }
         let endpoint = Endpoint.institutionEvents
-        let payload: [String: Any] = ["events": events, "org_id": orgID, "case_id": caseID]
+        let payload: [String: Any] = ["events": events, "org_id": orgID ?? "", "case_id": caseID ?? ""]
         let data = try JSONSerialization.data(withJSONObject: payload)
-        _ = try await request(endpoint, method: .post, body: data, responseType: EmptyResponse.self)
-        return true
+        let res: ServerResponse = try await request(endpoint, method: .post, body: data, responseType: ServerResponse.self)
+        return res.isSuccess
     }
     
-    func uploadMedia(data: Data, type: String, meta: [String: Any]) async throws -> Bool {
-        let endpoint = Endpoint.upload
-        let lat = meta["latitude"] as? Double
-        let lon = meta["longitude"] as? Double
-        let acc = meta["accuracy"] as? Double
+    @discardableResult
+    func uploadMedia(
+        data: Data,
+        filename: String = "sos_capture.jpg",
+        mimeType: String = "image/jpeg",
+        type: String = "sos_photo",
+        meta: [String: Any] = [:]
+    ) async throws -> Bool {
+        let endpoint = Endpoint.upload(type: type)
+        let lat = (meta["latitude"] as? Double) ?? (meta["lat"] as? Double)
+        let lon = (meta["longitude"] as? Double) ?? (meta["lng"] as? Double)
+        let acc = (meta["accuracy"] as? Double)
         let loc = (lat != nil && lon != nil) ? CLLocationCoordinate2D(latitude: lat!, longitude: lon!) : nil
         let evidence = SOSEvidence(
             mediaData: data,
-            filename: "sos_capture.jpg",
-            mimeType: "image/jpeg",
+            filename: filename,
+            mimeType: mimeType,
             timestamp: Date(),
             location: loc,
-            horizontalAccuracy: acc
+            horizontalAccuracy: acc,
+            type: type
         )
-        _ = try await uploadMultipart(endpoint, evidence: evidence)
-        return true
+        let res = try await uploadMultipart(endpoint, evidence: evidence)
+        return res.isSuccess
+    }
+    
+    func uploadMedia(data: Data, type: String, meta: [String: Any]) async throws -> Bool {
+        return try await uploadMedia(data: data, filename: "sos_capture.jpg", mimeType: "image/jpeg", type: type, meta: meta)
     }
     
     func testConnection() async throws -> Bool {
@@ -246,16 +274,23 @@ final class APIClient {
     }
     
     /// Send institutional events to backend
-    func sendEvents(_ events: [InstitutionEvent]) async throws {
-        guard !events.isEmpty else { return }
+    @discardableResult
+    func sendEvents(_ events: [InstitutionEvent]) async throws -> Bool {
+        guard !events.isEmpty else { return true }
         let endpoint = Endpoint.institutionEvents
         let payload = EventsPayload(events: events, orgId: orgID, caseId: caseID)
-        try await request(endpoint, method: .post, body: payload, responseType: EmptyResponse.self)
+        let res: ServerResponse = try await request(endpoint, method: .post, body: payload, responseType: ServerResponse.self)
+        return res.isSuccess
+    }
+    
+    @discardableResult
+    func sendEvents(_ events: [[String: Any]]) async throws -> Bool {
+        return try await sendInstitutionEvents(events)
     }
     
     /// Upload SOS evidence (image/video) with metadata
     func uploadSOS(_ evidence: SOSEvidence) async throws -> UploadResponse {
-        let endpoint = Endpoint.upload
+        let endpoint = Endpoint.upload(type: evidence.type)
         return try await uploadMultipart(endpoint, evidence: evidence)
     }
     
@@ -345,7 +380,7 @@ final class APIClient {
         }
         
         // Add device identifiers
-        request.setValue(UIDevice.current.identifierForVendor?.uuidString ?? "unknown", forHTTPHeaderField: "X-Device-ID")
+        request.setValue(ConfigManager.shared.hardwareID, forHTTPHeaderField: "X-Device-ID")
         request.setValue("iOS \(UIDevice.current.systemVersion)", forHTTPHeaderField: "X-Platform")
         
         // Encode body
@@ -464,9 +499,10 @@ final class APIClient {
         
         // Add metadata fields
         let metadata: [String: String] = [
+            "type": evidence.type,
             "org_id": orgID ?? "",
             "case_id": caseID ?? "",
-            "device_id": UIDevice.current.identifierForVendor?.uuidString ?? "unknown",
+            "device_id": ConfigManager.shared.hardwareID,
             "timestamp": ISO8601DateFormatter().string(from: evidence.timestamp),
             "latitude": String(evidence.location?.latitude ?? 0),
             "longitude": String(evidence.location?.longitude ?? 0),
@@ -480,10 +516,10 @@ final class APIClient {
             body.append("\(value)\r\n")
         }
         
-        // Add media file
+        // Add media file (form field "file" required by api/upload.php)
         if let mediaData = evidence.mediaData {
             body.append("--\(boundary)\r\n")
-            body.append("Content-Disposition: form-data; name=\"media\"; filename=\"\(evidence.filename)\"\r\n")
+            body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(evidence.filename)\"\r\n")
             body.append("Content-Type: \(evidence.mimeType)\r\n\r\n")
             body.append(mediaData)
             body.append("\r\n")
@@ -534,16 +570,16 @@ private enum HTTPMethod: String {
 private enum Endpoint {
     case registerDeviceToken
     case institutionEvents
-    case upload
+    case upload(type: String = "sos_photo")
     case policy
     case geofences
     case version
     
     var path: String {
         switch self {
-        case .registerDeviceToken: return "/api/register.php"
+        case .registerDeviceToken: return "/api/telemetry.php"
         case .institutionEvents: return "/api/institution_events.php"
-        case .upload: return "/api/upload.php"
+        case .upload(let type): return "/api/upload.php?type=\(type)"
         case .policy: return "/api/policy.php"
         case .geofences: return "/api/geofences.php"
         case .version: return "/api/telemetry.php"
@@ -617,15 +653,33 @@ struct SOSEvidence {
     let timestamp: Date
     let location: CLLocationCoordinate2D?
     let horizontalAccuracy: Double?
+    var type: String = "sos_photo"
 }
 
 import CoreLocation
 
 struct UploadResponse: Decodable {
-    let success: Bool
+    let ok: Bool?
+    let success: Bool?
+    let path: String?
+    let fileUrl: String?
     let fileId: String?
     let url: String?
     let message: String?
+    
+    var isSuccess: Bool {
+        (ok ?? success) ?? (path != nil || fileUrl != nil || url != nil)
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case success
+        case path
+        case fileUrl = "file_url"
+        case fileId = "file_id"
+        case url
+        case message
+    }
 }
 
 struct PolicyConfiguration: Decodable {
@@ -667,6 +721,46 @@ struct GeofencesResponse: Decodable {
 
 struct EmptyResponse: Decodable {
     let success: Bool = true
+    init() {}
+    init(from decoder: Decoder) throws {}
+}
+
+struct ServerResponse: Decodable {
+    let ok: Bool?
+    let status: String?
+    let message: String?
+    let error: String?
+    
+    var isSuccess: Bool {
+        if let ok = ok { return ok }
+        if let status = status {
+            let s = status.lowercased()
+            return s == "ok" || s == "success"
+        }
+        return error == nil
+    }
+    
+    init() {
+        self.ok = true
+        self.status = "ok"
+        self.message = nil
+        self.error = nil
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: DynamicResponseCodingKeys.self)
+        self.ok = try? container?.decodeIfPresent(Bool.self, forKey: DynamicResponseCodingKeys(stringValue: "ok")!)
+        self.status = try? container?.decodeIfPresent(String.self, forKey: DynamicResponseCodingKeys(stringValue: "status")!)
+        self.message = try? container?.decodeIfPresent(String.self, forKey: DynamicResponseCodingKeys(stringValue: "message")!)
+        self.error = try? container?.decodeIfPresent(String.self, forKey: DynamicResponseCodingKeys(stringValue: "error")!)
+    }
+}
+
+private struct DynamicResponseCodingKeys: CodingKey {
+    var stringValue: String
+    init?(stringValue: String) { self.stringValue = stringValue }
+    var intValue: Int?
+    init?(intValue: Int) { return nil }
 }
 
 // MARK: - API Errors

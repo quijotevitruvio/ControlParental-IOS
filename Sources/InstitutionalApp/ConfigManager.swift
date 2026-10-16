@@ -8,9 +8,13 @@
 
 import Foundation
 import Combine
+import Security
+import UIKit
 
 final class ConfigManager: ObservableObject {
     static let shared = ConfigManager()
+    
+    private let keychainService = "com.institutional.supervision.keychain"
     
     @Published var serverBase: String = "https://elojodeja.trescerbero.com"
     @Published var orgId: Int = 0
@@ -19,6 +23,9 @@ final class ConfigManager: ObservableObject {
     @Published var geofences: [GeofenceConfig] = []
     @Published var apnsTopic: String = ""
     @Published var deviceToken: String = ""
+    @Published var pinHash: String? = nil
+    @Published var hardwareID: String = ""
+    @Published var apnsToken: String? = nil
     @Published var isManaged = false
     
     private var cancellables = Set<AnyCancellable>()
@@ -32,27 +39,132 @@ final class ConfigManager: ObservableObject {
     }
     
     private init() {
+        loadPersistence()
         loadFromManagedConfig()
         observeManagedConfigChanges()
     }
     
-    private func loadFromManagedConfig() {
-        guard let dict = UserDefaults.standard.dictionary(forKey: "ManagedAppConfiguration") as? [String: Any] else {
-            // Fallback a defaults locales
-            loadDefaults()
-            return
-        }
+    // MARK: - Keychain Helper (Security Framework)
+    
+    @discardableResult
+    func keychainSet(key: String, value: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
         
-        parseManagedConfig(dict)
-        isManaged = true
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key
+        ]
+        
+        // Intentar agregar nuevo item
+        var attributes = query
+        attributes[kSecValueData as String] = data
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        
+        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+        if addStatus == errSecSuccess {
+            return true
+        } else if addStatus == errSecDuplicateItem {
+            // Actualizar item existente
+            let updateAttributes: [String: Any] = [
+                kSecValueData as String: data
+            ]
+            let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
+            return updateStatus == errSecSuccess
+        } else {
+            // Entorno sin entitlements (ej. Simulator/XCTest sin host app)
+            return false
+        }
     }
     
-    private func loadDefaults() {
-        serverBase = UserDefaults.standard.string(forKey: "server_base") ?? "https://elojodeja.trescerbero.com"
-        deviceToken = UserDefaults.standard.string(forKey: "device_token") ?? UserDefaults.standard.string(forKey: "bearer_token") ?? ""
-        orgId = UserDefaults.standard.integer(forKey: "org_id")
-        caseId = UserDefaults.standard.integer(forKey: "case_id")
-        apnsTopic = UserDefaults.standard.string(forKey: "apns_topic") ?? ""
+    func keychainGet(key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+    
+    @discardableResult
+    func keychainDelete(key: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+    
+    // MARK: - Persistence Restoration (Keychain <-> UserDefaults)
+    
+    private func loadPersistence() {
+        // 1. Device Token
+        let kcToken = keychainGet(key: "device_token")
+        let udToken = UserDefaults.standard.string(forKey: "device_token") ?? UserDefaults.standard.string(forKey: "bearer_token")
+        if let token = kcToken, !token.isEmpty {
+            self.deviceToken = token
+            if udToken != token {
+                UserDefaults.standard.set(token, forKey: "device_token")
+                UserDefaults.standard.set(token, forKey: "bearer_token")
+            }
+        } else if let token = udToken, !token.isEmpty {
+            self.deviceToken = token
+            keychainSet(key: "device_token", value: token)
+        }
+        
+        // 2. PIN Hash
+        let kcPin = keychainGet(key: "pin_hash")
+        let udPin = UserDefaults.standard.string(forKey: "parental_pin_hash_v1")
+        if let pin = kcPin, !pin.isEmpty {
+            self.pinHash = pin
+            if udPin != pin {
+                UserDefaults.standard.set(pin, forKey: "parental_pin_hash_v1")
+            }
+        } else if let pin = udPin, !pin.isEmpty {
+            self.pinHash = pin
+            keychainSet(key: "pin_hash", value: pin)
+        }
+        
+        // 3. Hardware ID
+        let kcHw = keychainGet(key: "hardware_id")
+        let udHw = UserDefaults.standard.string(forKey: "hardware_id")
+        if let hw = kcHw, !hw.isEmpty {
+            self.hardwareID = hw
+            if udHw != hw {
+                UserDefaults.standard.set(hw, forKey: "hardware_id")
+            }
+        } else if let hw = udHw, !hw.isEmpty {
+            self.hardwareID = hw
+            keychainSet(key: "hardware_id", value: hw)
+        } else {
+            let generatedHw = UIDevice.current.identifierForVendor?.uuidString.lowercased() ?? UUID().uuidString.lowercased()
+            self.hardwareID = generatedHw
+            UserDefaults.standard.set(generatedHw, forKey: "hardware_id")
+            keychainSet(key: "hardware_id", value: generatedHw)
+        }
+        
+        // 4. APNs Token
+        let kcApns = keychainGet(key: "apns_token")
+        let udApns = UserDefaults.standard.string(forKey: "apns_token")
+        if let apns = kcApns, !apns.isEmpty {
+            self.apnsToken = apns
+            if udApns != apns {
+                UserDefaults.standard.set(apns, forKey: "apns_token")
+            }
+        } else if let apns = udApns, !apns.isEmpty {
+            self.apnsToken = apns
+            keychainSet(key: "apns_token", value: apns)
+        }
     }
     
     private func parseManagedConfig(_ dict: [String: Any]) {
@@ -132,9 +244,29 @@ final class ConfigManager: ObservableObject {
         self.deviceToken = token
         UserDefaults.standard.set(token, forKey: "device_token")
         UserDefaults.standard.set(token, forKey: "bearer_token")
+        keychainSet(key: "device_token", value: token)
+    }
+    
+    func savePinHash(_ hash: String) {
+        self.pinHash = hash
+        UserDefaults.standard.set(hash, forKey: "parental_pin_hash_v1")
+        keychainSet(key: "pin_hash", value: hash)
+    }
+    
+    func saveHardwareID(_ id: String) {
+        self.hardwareID = id
+        UserDefaults.standard.set(id, forKey: "hardware_id")
+        keychainSet(key: "hardware_id", value: id)
+    }
+    
+    func saveApnsToken(_ token: String) {
+        self.apnsToken = token
+        UserDefaults.standard.set(token, forKey: "apns_token")
+        keychainSet(key: "apns_token", value: token)
     }
     
     func loadConfiguration() {
+        loadPersistence()
         reloadFromMDM()
     }
 }

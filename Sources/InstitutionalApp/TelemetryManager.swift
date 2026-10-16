@@ -81,10 +81,24 @@ final class TelemetryManager: ObservableObject {
         logEvent(type: "device_boot", meta: ["source": "app_start"])
     }
     
+    func startPeriodicSync() {
+        start()
+    }
+    
     // MARK: - Envío de Telemetría Real a /api/telemetry.php
     
     func sendTelemetryNow() {
+        let bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "InstitutionalTelemetrySync") {
+            // Background task expiration callback
+        }
+        
         Task {
+            defer {
+                if bgTaskId != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTaskId)
+                }
+            }
+            
             let payload = await buildTelemetryPayload()
             
             await MainActor.run { self.isSending = true }
@@ -96,13 +110,36 @@ final class TelemetryManager: ObservableObject {
                     self.lastSent = Date()
                 }
                 
-                // Si el servidor devolvió comandos pendientes, procesarlos
+                // 1. Sincronizar políticas remotas (números bloqueados y geocercas)
+                if let policy = response["policy"] as? [String: Any] {
+                    await processPolicy(policy)
+                }
+                
+                // 2. Si el servidor devolvió comandos pendientes, procesarlos
                 if let cmds = response["commands"] as? [[String: Any]], !cmds.isEmpty {
                     await processCommands(cmds)
                 }
+                
+                // 3. Vaciar cola de eventos offline pendientes tras conexión exitosa
+                await self.flushEvents()
             } catch {
                 print("Error enviando telemetría al servidor: \(error)")
             }
+        }
+    }
+    
+    private func processPolicy(_ policy: [String: Any]) async {
+        // Sincronizar números bloqueados
+        if let blocked = policy["blocked_numbers"] as? [String] {
+            CallBlockerManager.shared.syncFromPolicy(blocked)
+        } else if let blockedDict = policy["blocked_numbers"] as? [String: String] {
+            CallBlockerManager.shared.syncFromPolicy(dict: blockedDict)
+        }
+        
+        // Sincronizar geocercas
+        if let rawZones = policy["geofences"] as? [[String: Any]] {
+            let zones = rawZones.compactMap { GeofenceZone(dict: $0) }
+            LocationManager.shared.syncGeofences(zones)
         }
     }
     
@@ -147,6 +184,33 @@ final class TelemetryManager: ObservableObject {
             }
         }
         
+        // APNs / FCM token
+        if let apns = ConfigManager.shared.apnsToken, !apns.isEmpty {
+            payload["fcm_token"] = apns
+            payload["apns_token"] = apns
+        }
+        
+        // Estado de manipulación / Tamper status
+        payload["tamper_status"] = [
+            "passcode_set": ParentalAuthManager.shared.isPinSet,
+            "supervised": ConfigManager.shared.isManaged,
+            "jailbroken": false
+        ]
+        
+        // Resumen de permisos para chips de estado en el panel web
+        let hasLocAuth = LocationManager.shared.authorizationStatus == .authorizedAlways || LocationManager.shared.authorizationStatus == .authorizedWhenInUse
+        let hasNotifications = await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                continuation.resume(returning: settings.authorizationStatus == .authorized)
+            }
+        }
+        payload["permissions"] = [
+            "location_authorized": hasLocAuth,
+            "notifications_enabled": hasNotifications,
+            "accessibility": true,
+            "location": hasLocAuth
+        ]
+        
         // Estado y Metadatos
         payload["foreground_app"] = "Empresas"
         payload["platform"] = "ios"
@@ -172,8 +236,76 @@ final class TelemetryManager: ObservableObject {
         sendTelemetryNow()
     }
     
+    func flushEvents() async {
+        guard networkMonitor.isConnected else { return }
+        let pending = eventLogger.pendingEvents(limit: 100)
+        guard !pending.isEmpty else { return }
+        
+        var locationEvents: [QueuedEvent] = []
+        var institutionalEvents: [QueuedEvent] = []
+        
+        for ev in pending {
+            if ev.type == "location" || ev.type == "location_update" {
+                locationEvents.append(ev)
+            } else {
+                institutionalEvents.append(ev)
+            }
+        }
+        
+        // 1. Procesar eventos de ubicación offline formateados como room_logs
+        if !locationEvents.isEmpty {
+            var roomLogs: [[String: Any]] = []
+            for ev in locationEvents {
+                let meta = ev.metaDict
+                let lat = (meta["lat"] as? Double) ?? (meta["latitude"] as? Double) ?? 0.0
+                let lng = (meta["lng"] as? Double) ?? (meta["longitude"] as? Double) ?? 0.0
+                let acc = (meta["accuracy"] as? Double) ?? (meta["horizontal_accuracy"] as? Double) ?? 0.0
+                let alt = (meta["altitude"] as? Double) ?? 0.0
+                let speed = (meta["speed"] as? Double) ?? (meta["speed_kmh"] as? Double) ?? 0.0
+                let ts = Int64(ev.timestamp.timeIntervalSince1970 * 1000)
+                
+                let contentJson = "{\"lat\":\(lat),\"lng\":\(lng),\"acc\":\(acc),\"speed\":\(speed)}"
+                roomLogs.append([
+                    "type": "location",
+                    "lat": lat,
+                    "lng": lng,
+                    "accuracy": acc,
+                    "altitude": alt,
+                    "speed": speed,
+                    "ts": ts,
+                    "content": contentJson
+                ])
+            }
+            
+            do {
+                _ = try await apiClient.sendTelemetry([
+                    "room_logs": roomLogs,
+                    "is_offline": 1
+                ])
+                eventLogger.markAsSent(ids: locationEvents.map { $0.id })
+            } catch {
+                print("Error enviando room_logs de ubicación offline: \(error)")
+            }
+        }
+        
+        // 2. Procesar eventos institucionales (sos_triggered, geofence_enter/exit, etc.)
+        if !institutionalEvents.isEmpty {
+            let eventsPayload: [[String: Any]] = institutionalEvents.map { $0.asDictionary }
+            do {
+                let success = try await apiClient.sendInstitutionEvents(eventsPayload)
+                if success {
+                    eventLogger.markAsSent(ids: institutionalEvents.map { $0.id })
+                }
+            } catch {
+                print("Error enviando eventos institucionales offline: \(error)")
+            }
+        }
+    }
+    
     func flushEvents() {
-        sendTelemetryNow()
+        Task {
+            await flushEvents()
+        }
     }
     
     func logEvent(type: String, meta: [String: Any] = [:]) {

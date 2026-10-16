@@ -36,19 +36,38 @@ final class CallBlockerManager: ObservableObject {
         checkExtensionStatus()
     }
     
+    private var groupDefaults: UserDefaults? {
+        UserDefaults(suiteName: "group.com.institutional.supervision")
+    }
+    
     // MARK: - Almacenamiento Local
     
     func loadLocalNumbers() {
-        if let data = UserDefaults.standard.data(forKey: storageKey),
+        let data = groupDefaults?.data(forKey: storageKey) ?? UserDefaults.standard.data(forKey: storageKey)
+        if let data = data,
            let decoded = try? JSONDecoder().decode([BlockedContact].self, from: data) {
             self.blockedNumbers = decoded
+            return
+        }
+        
+        // Fallback a array de strings plano
+        let rawList = groupDefaults?.stringArray(forKey: "blocked_phone_numbers") ?? UserDefaults.standard.stringArray(forKey: "blocked_phone_numbers") ?? []
+        if !rawList.isEmpty {
+            self.blockedNumbers = rawList.map { BlockedContact(number: $0, label: "Lista Negra", dateAdded: Date()) }
         }
     }
     
     private func saveNumbers() {
         if let encoded = try? JSONEncoder().encode(blockedNumbers) {
             UserDefaults.standard.set(encoded, forKey: storageKey)
+            groupDefaults?.set(encoded, forKey: storageKey)
         }
+        
+        // Espejo de lista plana de números para CallDirectoryExtension y tests
+        let cleanNumbers = blockedNumbers.map { $0.cleanNumber }
+        UserDefaults.standard.set(cleanNumbers, forKey: "blocked_phone_numbers")
+        groupDefaults?.set(cleanNumbers, forKey: "blocked_phone_numbers")
+        
         reloadCallDirectory()
     }
     
@@ -99,10 +118,27 @@ final class CallBlockerManager: ObservableObject {
     
     // MARK: - Sincronización Remota con el Panel Web
     
+    func syncFromPolicy(_ blocked: [String]) {
+        var changed = false
+        for num in blocked {
+            let clean = num.replacingOccurrences(of: "[^0-9+]", with: "", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
+            if !blockedNumbers.contains(where: { $0.cleanNumber == clean }) {
+                blockedNumbers.append(BlockedContact(number: clean, label: "Bloqueado por Política", dateAdded: Date()))
+                changed = true
+            }
+        }
+        if changed {
+            saveNumbers()
+        }
+        lastSyncDate = Date()
+    }
+    
     func syncFromPolicy(dict: [String: String]) {
         var changed = false
         for (num, label) in dict {
             let clean = num.replacingOccurrences(of: "[^0-9+]", with: "", options: .regularExpression)
+            guard !clean.isEmpty else { continue }
             if !blockedNumbers.contains(where: { $0.cleanNumber == clean }) {
                 blockedNumbers.append(BlockedContact(number: clean, label: label, dateAdded: Date()))
                 changed = true

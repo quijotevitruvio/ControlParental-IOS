@@ -46,6 +46,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             handleRemoteNotification(remoteNotification)
         }
         
+        // Handle wake-up from background location event
+        if launchOptions?[.location] != nil {
+            logger.info("Application launched/woken in background due to location event")
+            locationManager.startTracking()
+            telemetryManager.startPeriodicSync()
+            telemetryManager.sendTelemetryNow()
+        }
+        
         return true
     }
     
@@ -55,6 +63,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) {
         let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         logger.info("Registered for remote notifications with token: \(tokenString)")
+        configManager.apnsToken = tokenString
         
         // Send device token to backend
         Task {

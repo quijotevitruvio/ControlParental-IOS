@@ -72,16 +72,20 @@ final class EventLogger: ObservableObject {
         enqueue(queued)
     }
     
-    func pendingEvents() async -> [QueuedEvent] {
+    func pendingEvents(limit: Int = 100) -> [QueuedEvent] {
         queueLock.lock()
         defer { queueLock.unlock() }
-        return eventQueue
+        return Array(eventQueue.prefix(limit))
     }
     
-    func markAsSent(_ events: [QueuedEvent]) async {
+    func pendingEvents() async -> [QueuedEvent] {
+        return pendingEvents(limit: 1000)
+    }
+    
+    func markAsSent(ids: [UUID]) {
         queueLock.lock()
-        let ids = Set(events.map { $0.id })
-        eventQueue.removeAll { ids.contains($0.id) }
+        let idSet = Set(ids)
+        eventQueue.removeAll { idSet.contains($0.id) }
         let count = eventQueue.count
         queueLock.unlock()
         
@@ -89,6 +93,14 @@ final class EventLogger: ObservableObject {
             self.queueCount = count
         }
         persistQueue()
+    }
+    
+    func markAsSent(ids: Set<UUID>) {
+        markAsSent(ids: Array(ids))
+    }
+    
+    func markAsSent(_ events: [QueuedEvent]) async {
+        markAsSent(ids: events.map { $0.id })
     }
     
     func clearAll() {

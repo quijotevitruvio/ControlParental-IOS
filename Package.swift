@@ -25,6 +25,11 @@ let package = Package(
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")
             ]
+        ),
+        .target(
+            name: "CallDirectoryExtension",
+            dependencies: [],
+            path: "Sources/CallDirectoryExtension"
         )
     ]
 )

@@ -15,7 +15,7 @@ final class ParentalAuthManager: ObservableObject {
     }
     
     func checkPinStatus() {
-        let stored = UserDefaults.standard.string(forKey: pinKey)
+        let stored = ConfigManager.shared.pinHash ?? UserDefaults.standard.string(forKey: pinKey)
         isPinSet = (stored != nil && !stored!.isEmpty)
         isUnlocked = false
     }
@@ -23,6 +23,7 @@ final class ParentalAuthManager: ObservableObject {
     func setPin(_ pin: String) -> Bool {
         guard pin.count == 4, pin.allSatisfy({ $0.isNumber }) else { return false }
         let hash = sha256(pin)
+        ConfigManager.shared.savePinHash(hash)
         UserDefaults.standard.set(hash, forKey: pinKey)
         isPinSet = true
         isUnlocked = true
@@ -30,7 +31,7 @@ final class ParentalAuthManager: ObservableObject {
     }
     
     func verifyPin(_ pin: String) -> Bool {
-        guard let storedHash = UserDefaults.standard.string(forKey: pinKey) else {
+        guard let storedHash = ConfigManager.shared.pinHash ?? UserDefaults.standard.string(forKey: pinKey) else {
             return false
         }
         let inputHash = sha256(pin)

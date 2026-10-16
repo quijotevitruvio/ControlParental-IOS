@@ -33,6 +33,7 @@ struct SettingsView: View {
     @State private var enrollStatusMessage: String? = nil
     @State private var enrollStatusIsError = false
     @State private var isEnrolling = false
+    @State private var showingQRScanner = false
     
     var body: some View {
         NavigationView {
@@ -98,14 +99,26 @@ struct SettingsView: View {
                         }
                     }
                     
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Vincular con Código del Panel")
-                            .font(.caption)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button(action: { showingQRScanner = true }) {
+                            HStack {
+                                Image(systemName: "qrcode.viewfinder")
+                                Text("📷 Escanear QR del Panel")
+                                    .fontWeight(.bold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(Color.blue.opacity(0.12))
+                            .foregroundColor(.blue)
+                            .cornerRadius(8)
+                        }
+                        
+                        Text("O ingresa el Token de 16 caracteres:")
+                            .font(.caption2)
                             .foregroundColor(.secondary)
-                            .fontWeight(.medium)
                         
                         HStack {
-                            TextField("Token de 16 caracteres", text: $enrollTokenInput)
+                            TextField("Token alfanumérico", text: $enrollTokenInput)
                                 .font(.system(.subheadline, design: .monospaced))
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
@@ -284,6 +297,23 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingCallBlocker) {
                 CallBlockerView()
+            }
+            .sheet(isPresented: $showingQRScanner) {
+                QRScannerView(onCodeScanned: { scannedCode in
+                    if let parsed = QRScannerView.parseEnrollmentCode(scannedCode) {
+                        if let s = parsed.server, !s.isEmpty {
+                            configManager.serverBase = s
+                            UserDefaults.standard.set(s, forKey: "server_base")
+                        }
+                        self.enrollTokenInput = parsed.token
+                        performEnroll(token: parsed.token)
+                    } else {
+                        enrollStatusMessage = "Código QR no reconocido"
+                        enrollStatusIsError = true
+                    }
+                }, onManualEntry: {
+                    showingQRScanner = false
+                })
             }
             .sheet(isPresented: $showingChangePin) {
                 NavigationView {

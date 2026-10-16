@@ -52,29 +52,49 @@ final class SOSManager: ObservableObject {
         
         // Obtener ubicación actual
         let timestamp = ISO8601DateFormatter().string(from: Date())
+        let loc = LocationManager.shared.lastLocation
+        let lat = loc?.coordinate.latitude ?? 0.0
+        let lng = loc?.coordinate.longitude ?? 0.0
+        let acc = loc?.horizontalAccuracy ?? 0.0
         
         var meta: [String: Any] = [
             "type": "sos",
             "timestamp": timestamp,
             "initiated_by_user": true,
-            "media_type": mediaType.rawValue
+            "media_type": mediaType.rawValue,
+            "latitude": lat,
+            "longitude": lng,
+            "accuracy": acc
         ]
         
-        if let coord = LocationManager.shared.lastLocation?.coordinate {
-            meta["latitude"] = coord.latitude
-            meta["longitude"] = coord.longitude
-            meta["accuracy"] = LocationManager.shared.lastLocation?.horizontalAccuracy ?? 0
+        // Disparar alerta SOS inmediata en tiempo real en /api/telemetry.php
+        // Esto activa fire_alert (Telegram, Email y Banner Web) instantáneamente
+        Task {
+            _ = try? await APIClient.shared.sendTelemetry([
+                "type": "sos",
+                "sos": 1,
+                "lat": lat,
+                "lng": lng,
+                "accuracy": acc,
+                "timestamp": timestamp
+            ])
         }
         
         // Sube la evidencia
         do {
             if let imageData = imageData {
-                _ = try await APIClient.shared.uploadMedia(data: imageData, type: "sos_photo", meta: meta)
+                _ = try await APIClient.shared.uploadMedia(
+                    data: imageData,
+                    filename: "sos_capture.jpg",
+                    mimeType: "image/jpeg",
+                    type: "sos_photo",
+                    meta: meta
+                )
             } else {
                 // Solo ubicación
                 _ = try await APIClient.shared.sendInstitutionEvents([[
                     "type": "sos_button",
-                    "occurred_at": ISO8601DateFormatter().string(from: Date()),
+                    "occurred_at": timestamp,
                     "meta": meta
                 ]])
             }
@@ -101,10 +121,55 @@ final class SOSManager: ObservableObject {
     }
 }
 
+// MARK: - SOS Camera Picker (UIImagePickerController Wrapper)
+
+struct SOSCameraPicker: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    var onImagePicked: (UIImage) -> Void
+    
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            picker.sourceType = .camera
+            picker.cameraDevice = .front
+        } else {
+            picker.sourceType = .photoLibrary
+        }
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: SOSCameraPicker
+        
+        init(_ parent: SOSCameraPicker) {
+            self.parent = parent
+        }
+        
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onImagePicked(image)
+            }
+            parent.isPresented = false
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.isPresented = false
+        }
+    }
+}
+
 // MARK: - Vista SOS para SwiftUI
 
 struct SOSButtonView: View {
     @StateObject private var sosManager = SOSManager.shared
+    @State private var showingCameraPicker = false
     @State private var showingMediaPicker = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showingActionSheet = false
@@ -144,8 +209,8 @@ struct SOSButtonView: View {
             }
         }
         .confirmationDialog("Tipo de SOS", isPresented: $showingActionSheet, titleVisibility: .visible) {
-            Button("Foto + Ubicación") {
-                Task { await SOSManager.shared.sendSOS(mediaType: .photo) }
+            Button("Foto + Ubicación (Cámara)") {
+                showingCameraPicker = true
             }
             Button("Foto de Galería + Ubicación") {
                 showingMediaPicker = true
@@ -155,7 +220,14 @@ struct SOSButtonView: View {
             }
             Button("Cancelar", role: .cancel) {}
         } message: {
-            Text("Elige qué evidencia enviar. La foto se toma al momento o se elige de galería. La ubicación actual se adjunta siempre.")
+            Text("Elige qué evidencia enviar. La foto se toma al momento con la cámara o se elige de galería. La ubicación actual se adjunta siempre.")
+        }
+        .sheet(isPresented: $showingCameraPicker) {
+            SOSCameraPicker(isPresented: $showingCameraPicker) { capturedImage in
+                Task {
+                    await SOSManager.shared.sendSOS(mediaType: .photo, selectedImage: capturedImage)
+                }
+            }
         }
         .photosPicker(isPresented: $showingMediaPicker, selection: $selectedPhoto, matching: .images)
         .onChange(of: selectedPhoto) { _, item in

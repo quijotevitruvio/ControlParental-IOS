@@ -29,3 +29,46 @@ targets:
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - target: CallDirectoryExtension
+
+  CallDirectoryExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources/CallDirectoryExtension
+        excludes:
+          - Info.plist
+    info:
+      path: Sources/CallDirectoryExtension/Info.plist
+      properties:
+        CFBundleDisplayName: "CallDirectoryExtension"
+        CFBundleIdentifier: "com.institutional.supervision.CallDirectory"
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.institutional.supervision.CallDirectory
+        INFOPLIST_FILE: Sources/CallDirectoryExtension/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+
+  InstitutionalAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/InstitutionalAppTests
+    dependencies:
+      - target: InstitutionalApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.institutional.supervision.tests
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
