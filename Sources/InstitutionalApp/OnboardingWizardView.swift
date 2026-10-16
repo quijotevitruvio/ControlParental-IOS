@@ -46,31 +46,29 @@ struct OnboardingWizardView: View {
                     .padding(.top, 16)
                     .padding(.horizontal, 24)
                 
-                Spacer()
-                
-                // Contenido del Paso Actual
-                Group {
-                    switch currentStep {
-                    case 1:
-                        stepWelcome
-                    case 2:
-                        stepSetPin
-                    case 3:
-                        stepLocation
-                    case 4:
-                        stepNotificationsAndCamera
-                    case 5:
-                        stepAppleProtections
-                    case 6:
-                        stepFinished
-                    default:
-                        EmptyView()
+                ScrollView(showsIndicators: false) {
+                    Group {
+                        switch currentStep {
+                        case 1:
+                            stepWelcome
+                        case 2:
+                            stepSetPin
+                        case 3:
+                            stepLocation
+                        case 4:
+                            stepNotificationsAndCamera
+                        case 5:
+                            stepAppleProtections
+                        case 6:
+                            stepFinished
+                        default:
+                            EmptyView()
+                        }
                     }
+                    .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                                            removal: .move(edge: .leading).combined(with: .opacity)))
+                    .padding(.vertical, 8)
                 }
-                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
-                                        removal: .move(edge: .leading).combined(with: .opacity)))
-                
-                Spacer()
                 
                 // Botones de Navegación Inferior
                 bottomNavigation

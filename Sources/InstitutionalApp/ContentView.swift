@@ -122,6 +122,7 @@ struct ContentView: View {
                     LocationManager.shared.startUpdating()
                 }
             }
+            .navigationViewStyle(StackNavigationViewStyle())
         }
     }
     
