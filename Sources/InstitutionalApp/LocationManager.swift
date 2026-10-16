@@ -25,7 +25,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 10 // metros
+        manager.distanceFilter = 5 // metros
         manager.activityType = .other
         
         authorizationStatus = manager.authorizationStatus
@@ -36,10 +36,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     
     func requestAlwaysPermission() {
         if authorizationStatus == .notDetermined {
-            manager.requestWhenInUseAuthorization()
             manager.requestAlwaysAuthorization()
         } else if authorizationStatus == .authorizedWhenInUse {
             manager.requestAlwaysAuthorization()
+        } else if authorizationStatus == .denied || authorizationStatus == .restricted {
+            openSettings()
         }
     }
     
@@ -61,6 +62,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
         isUpdating = true
         manager.startUpdatingLocation()
+        manager.requestLocation()
         
         // Rastreo de cambios significativos (despierta la app en background incluso tras reinicio)
         if CLLocationManager.significantLocationChangeMonitoringAvailable() {
@@ -71,6 +73,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func stopUpdating() {
         isUpdating = false
         manager.stopUpdatingLocation()
+    }
+    
+    func refreshLocation() {
+        startUpdating()
+        manager.requestLocation()
     }
     
     // MARK: - Geocercas

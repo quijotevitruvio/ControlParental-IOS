@@ -362,7 +362,7 @@ struct ContentView: View {
                     Spacer()
                     
                     Button(action: {
-                        LocationManager.shared.startUpdating()
+                        LocationManager.shared.refreshLocation()
                         Task { await TelemetryManager.shared.collectAndSendTelemetry() }
                     }) {
                         Image(systemName: "arrow.clockwise")

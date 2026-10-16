@@ -142,6 +142,9 @@ final class TelemetryManager: ObservableObject {
         } else {
             let hasLocAuth = LocationManager.shared.authorizationStatus == .authorizedAlways || LocationManager.shared.authorizationStatus == .authorizedWhenInUse
             payload["loc_enabled"] = hasLocAuth ? 1 : 0
+            if hasLocAuth {
+                LocationManager.shared.refreshLocation()
+            }
         }
         
         // Estado y Metadatos
