@@ -348,14 +348,14 @@ final class TelemetryManager: ObservableObject {
             ]
             
             do {
-                let resp = try await apiClient.uploadMedia(
+                let uploaded = try await apiClient.uploadMedia(
                     data: data,
                     filename: filename,
                     mimeType: "image/jpeg",
                     type: "photo",
                     meta: meta
                 )
-                if resp.isSuccess {
+                if uploaded {
                     uploadedIds.insert(assetId)
                     uploadedAnyInPass = true
                     let currentList = Array(uploadedIds)
