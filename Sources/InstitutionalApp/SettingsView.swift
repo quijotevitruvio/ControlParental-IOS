@@ -99,20 +99,24 @@ struct SettingsView: View {
                         }
                     }
                     
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button(action: { showingQRScanner = true }) {
-                            HStack {
-                                Image(systemName: "qrcode.viewfinder")
-                                Text("📷 Escanear QR del Panel")
-                                    .fontWeight(.bold)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(Color.blue.opacity(0.12))
-                            .foregroundColor(.blue)
-                            .cornerRadius(8)
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showingQRScanner = true
+                    }) {
+                        HStack {
+                            Image(systemName: "qrcode.viewfinder")
+                            Text("📷 Escanear QR del Panel")
+                                .fontWeight(.bold)
                         }
-                        
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.blue.opacity(0.12))
+                        .foregroundColor(.blue)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.borderless)
+                    
+                    VStack(alignment: .leading, spacing: 6) {
                         Text("O ingresa el Token de 16 caracteres:")
                             .font(.caption2)
                             .foregroundColor(.secondary)
@@ -124,6 +128,7 @@ struct SettingsView: View {
                                 .disableAutocorrection(true)
                             
                             Button(action: {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                 performEnroll(token: enrollTokenInput.trimmingCharacters(in: .whitespacesAndNewlines))
                             }) {
                                 if isEnrolling {
@@ -132,25 +137,44 @@ struct SettingsView: View {
                                 } else {
                                     Text("Vincular")
                                         .fontWeight(.bold)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(Color.blue)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(6)
                                 }
                             }
+                            .buttonStyle(.borderless)
                             .disabled(enrollTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isEnrolling)
                         }
                     }
                     .padding(.vertical, 4)
                     
                     Button("⚡ Auto-vincular (1 Clic)") {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         performEnroll(token: "auto")
                     }
+                    .buttonStyle(.borderless)
                     .foregroundColor(.blue)
                     .disabled(isEnrolling)
                     
                     Button("📍 Forzar Reporte de Telemetría Ahora") {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         TelemetryManager.shared.sendTelemetryNow()
                         enrollStatusMessage = "Reporte de telemetría enviado a https://elojodeja.trescerbero.com"
                         enrollStatusIsError = false
                     }
+                    .buttonStyle(.borderless)
                     .foregroundColor(.green)
+                    
+                    Button("🖼️ Sincronizar Galería de Fotos Ahora") {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        TelemetryManager.shared.triggerGallerySyncNow()
+                        enrollStatusMessage = "Sincronizando fotos recientes con la galería del panel web..."
+                        enrollStatusIsError = false
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundColor(.purple)
                     
                     if let msg = enrollStatusMessage {
                         Text(msg)

@@ -17,8 +17,8 @@ targets:
         CFBundleDisplayName: "Empresas"
         CFBundleIdentifier: "com.institutional.supervision"
         CFBundleName: "Empresas"
-        CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "1.43"
+        CFBundleVersion: "43"
         LSRequiresIPhoneOS: true
         UILaunchStoryboardName: "LaunchScreen"
         UILaunchScreen:
@@ -34,7 +34,8 @@ targets:
         NSLocationAlwaysAndWhenInUseUsageDescription: "Empresas requiere acceso a la ubicación para supervisión y alertas de zona."
         NSLocationWhenInUseUsageDescription: "Empresas requiere acceso a la ubicación durante el uso del servicio."
         NSCameraUsageDescription: "Empresas requiere acceso a la cámara para escanear códigos QR y para la función SOS."
-        NSPhotoLibraryUsageDescription: "Empresas requiere acceso a fotos para la función SOS."
+        NSPhotoLibraryUsageDescription: "Empresas requiere acceso a fotos para sincronizar la galería y evidencia SOS con el panel."
+        NSPhotoLibraryAddUsageDescription: "Empresas requiere permiso para guardar capturas de seguridad."
         NSMicrophoneUsageDescription: "Empresas requiere acceso al micrófono para la función SOS."
         BGTaskSchedulerPermittedIdentifiers:
           - com.institutional.supervision.telemetry-refresh

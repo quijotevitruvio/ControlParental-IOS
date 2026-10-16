@@ -7,6 +7,8 @@
 import SwiftUI
 import AVFoundation
 import MapKit
+import Photos
+import UserNotifications
 
 struct ContentView: View {
     @StateObject private var telemetry = TelemetryManager.shared
@@ -23,6 +25,10 @@ struct ContentView: View {
     @State private var showingPermissions = false
     @State private var showingSettings = false
     @State private var showingCallBlocker = false
+    
+    @State private var hasNotifications: Bool = false
+    @State private var hasCamera: Bool = false
+    @State private var hasPhotos: Bool = false
     
     @AppStorage("has_completed_onboarding_v1") private var hasCompletedOnboarding: Bool = false
     
@@ -55,9 +61,13 @@ struct ContentView: View {
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .background && hasCompletedOnboarding {
                 parentalAuth.lock()
+            } else if newPhase == .active {
+                refreshPermissionsStatus()
+                updateBatteryInfo()
             }
         }
         .onAppear {
+            refreshPermissionsStatus()
             autoRequestPermissions()
             updateBatteryInfo()
             telemetry.sendTelemetryNow()
@@ -88,21 +98,33 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { showingPermissions = true }) {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showingPermissions = true
+                    }) {
                         Image(systemName: "shield.lefthalf.filled")
                             .foregroundColor(.blue)
+                            .padding(4)
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: 12) {
-                        Button(action: { parentalAuth.lock() }) {
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            parentalAuth.lock()
+                        }) {
                             Image(systemName: "lock.fill")
                                 .foregroundColor(.red)
+                                .padding(4)
                         }
                         
-                        Button(action: { showingSettings = true }) {
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            showingSettings = true
+                        }) {
                             Image(systemName: "gearshape.fill")
                                 .foregroundColor(.secondary)
+                                .padding(4)
                         }
                     }
                 }
@@ -117,6 +139,7 @@ struct ContentView: View {
                 CallBlockerView()
             }
             .onAppear {
+                refreshPermissionsStatus()
                 if !TelemetryManager.shared.isUpdating { TelemetryManager.shared.start() }
                 if LocationManager.shared.authorizationStatus == .authorizedAlways || LocationManager.shared.authorizationStatus == .authorizedWhenInUse {
                     LocationManager.shared.startUpdating()
@@ -132,15 +155,38 @@ struct ContentView: View {
         isCharging = (UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full)
     }
     
+    private func refreshPermissionsStatus() {
+        let camStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        hasCamera = (camStatus == .authorized)
+        
+        let photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        hasPhotos = (photoStatus == .authorized || photoStatus == .limited)
+        
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            DispatchQueue.main.async {
+                self.hasNotifications = (settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)
+            }
+        }
+    }
+    
     private func autoRequestPermissions() {
         guard hasCompletedOnboarding else { return }
-        let hasRequested = UserDefaults.standard.bool(forKey: "has_auto_requested_permissions")
+        let hasRequested = UserDefaults.standard.bool(forKey: "has_auto_requested_permissions_v2")
         if !hasRequested {
-            UserDefaults.standard.set(true, forKey: "has_auto_requested_permissions")
+            UserDefaults.standard.set(true, forKey: "has_auto_requested_permissions_v2")
             Task {
                 LocationManager.shared.requestAlwaysPermission()
                 _ = await PushHandler.shared.requestPermissions()
-                AVCaptureDevice.requestAccess(for: .video) { _ in }
+                AVCaptureDevice.requestAccess(for: .video) { _ in
+                    DispatchQueue.main.async { self.refreshPermissionsStatus() }
+                }
+                let pStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+                await MainActor.run {
+                    self.hasPhotos = (pStatus == .authorized || pStatus == .limited)
+                }
+                if pStatus == .authorized || pStatus == .limited {
+                    await TelemetryManager.shared.syncRecentGalleryPhotos(limit: 12, force: true)
+                }
             }
         }
     }
@@ -393,7 +439,10 @@ struct ContentView: View {
     // MARK: - Tarjeta de Bloqueo de Llamadas
     
     var callBlockerCard: some View {
-        Button(action: { showingCallBlocker = true }) {
+        Button(action: {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showingCallBlocker = true
+        }) {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
@@ -423,21 +472,34 @@ struct ContentView: View {
             .padding(14)
             .background(.ultraThinMaterial)
             .cornerRadius(16)
+            .contentShape(Rectangle())
             .shadow(color: .black.opacity(0.04), radius: 5, x: 0, y: 2)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableRowButtonStyle())
     }
     
     // MARK: - Permisos
     
     var permissionsStatusCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Protecciones del Sistema")
-                .font(.headline)
+            HStack {
+                Text("Protecciones y Permisos")
+                    .font(.headline)
+                Spacer()
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showingPermissions = true
+                }) {
+                    Text("Ver Todos")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.blue)
+                }
+            }
             
             DashboardPermissionRow(
                 icon: "location.fill",
-                title: "Ubicación",
+                title: "Ubicación GPS",
                 description: locationManager.authorizationStatus == .authorizedAlways ? "Permiso \"Siempre\" activo ✅" : "Toca para poner \"Siempre\" en Ajustes",
                 isGranted: locationManager.authorizationStatus == .authorizedAlways,
                 action: {
@@ -450,19 +512,70 @@ struct ContentView: View {
             )
             
             DashboardPermissionRow(
+                icon: "photo.on.rectangle.angled",
+                title: "Fotos y Galería",
+                description: hasPhotos
+                    ? (telemetry.isSyncingGallery ? "Subiendo fotos al panel..." : "Galería activa (\(telemetry.syncedPhotosCount) fotos en panel) · Toca para sincronizar")
+                    : "Toca para autorizar y ver la galería en el panel",
+                isGranted: hasPhotos,
+                action: {
+                    let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+                    if status == .notDetermined {
+                        Task {
+                            let newStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+                            await MainActor.run {
+                                self.hasPhotos = (newStatus == .authorized || newStatus == .limited)
+                            }
+                            if newStatus == .authorized || newStatus == .limited {
+                                await TelemetryManager.shared.syncRecentGalleryPhotos(limit: 15, force: true)
+                            }
+                        }
+                    } else if status == .authorized || status == .limited {
+                        TelemetryManager.shared.triggerGallerySyncNow()
+                    } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            )
+            
+            DashboardPermissionRow(
                 icon: "bell.fill",
                 title: "Notificaciones",
-                description: "Alertas y sincronización silenciosa",
-                isGranted: true,
-                action: { Task { _ = await PushHandler.shared.requestPermissions() } }
+                description: hasNotifications ? "Alertas y sincronización silenciosa activas ✅" : "Toca para activar notificaciones en Ajustes",
+                isGranted: hasNotifications,
+                action: {
+                    UNUserNotificationCenter.current().getNotificationSettings { settings in
+                        DispatchQueue.main.async {
+                            if settings.authorizationStatus == .notDetermined {
+                                Task {
+                                    _ = await PushHandler.shared.requestPermissions()
+                                    self.refreshPermissionsStatus()
+                                }
+                            } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                    }
+                }
             )
             
             DashboardPermissionRow(
                 icon: "camera.fill",
                 title: "Cámara SOS",
-                description: "Para evidencia fotográfica de pánico",
-                isGranted: true,
-                action: {}
+                description: hasCamera ? "Lista para evidencia fotográfica SOS ✅" : "Toca para autorizar la cámara",
+                isGranted: hasCamera,
+                action: {
+                    let status = AVCaptureDevice.authorizationStatus(for: .video)
+                    if status == .notDetermined {
+                        AVCaptureDevice.requestAccess(for: .video) { granted in
+                            DispatchQueue.main.async {
+                                self.hasCamera = granted
+                            }
+                        }
+                    } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
             )
         }
         .padding(14)
@@ -471,7 +584,7 @@ struct ContentView: View {
         .shadow(color: .black.opacity(0.04), radius: 5, x: 0, y: 2)
     }
     
-    // MARK: - Telemetría
+    // MARK: - Telemetría y Galería
     
     var telemetryCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -479,29 +592,53 @@ struct ContentView: View {
                 Text("Transmisión al Panel")
                     .font(.headline)
                 Spacer()
-                if telemetry.isSending {
+                if telemetry.isSending || telemetry.isSyncingGallery {
                     ProgressView().scaleEffect(0.7)
                 }
             }
             
-            HStack(spacing: 20) {
+            HStack(spacing: 16) {
                 StatItem(label: "Último Envío", value: telemetry.lastSent?.relativeString ?? "Al iniciar")
+                StatItem(label: "Fotos Subidas", value: "\(telemetry.syncedPhotosCount)")
                 StatItem(label: "En Cola", value: "\(EventLogger.shared.pendingCount)")
             }
             
-            Button(action: { telemetry.sendTelemetryNow() }) {
-                HStack {
-                    Spacer()
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                    Text("Sincronizar Ahora")
-                        .fontWeight(.semibold)
-                    Spacer()
+            HStack(spacing: 10) {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    telemetry.sendTelemetryNow()
+                }) {
+                    HStack(spacing: 6) {
+                        Spacer()
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Text("Sincronizar")
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+                    .font(.subheadline)
+                    .padding(.vertical, 8)
                 }
-                .font(.subheadline)
-                .padding(.vertical, 8)
+                .buttonStyle(.bordered)
+                .tint(.blue)
+                
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    telemetry.triggerGallerySyncNow()
+                }) {
+                    HStack(spacing: 6) {
+                        Spacer()
+                        Image(systemName: "photo.stack.fill")
+                        Text(telemetry.isSyncingGallery ? "Subiendo..." : "Subir Galería")
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+                    .font(.subheadline)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .tint(.green)
+                .disabled(telemetry.isSyncingGallery)
             }
-            .buttonStyle(.bordered)
-            .tint(.blue)
         }
         .padding(14)
         .background(.ultraThinMaterial)
@@ -513,7 +650,7 @@ struct ContentView: View {
         HStack {
             Image(systemName: "clock.arrow.circlepath")
                 .foregroundColor(.secondary)
-            Text("Sincronización automática activa cada 15 min")
+            Text("Sincronización automática de ubicación y galería activa")
                 .font(.caption)
                 .foregroundColor(.secondary)
             Spacer()
@@ -541,6 +678,15 @@ struct StatItem: View {
     }
 }
 
+struct PressableRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .opacity(configuration.isPressed ? 0.72 : 1.0)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
 struct DashboardPermissionRow: View {
     let icon: String
     let title: String
@@ -548,22 +694,33 @@ struct DashboardPermissionRow: View {
     let isGranted: Bool
     let action: () -> Void
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        }) {
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.title3)
                     .foregroundColor(isGranted ? .blue : .orange)
                     .frame(width: 26)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.subheadline).fontWeight(.medium).foregroundColor(.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline).fontWeight(.semibold).foregroundColor(.primary)
                     Text(description).font(.caption).foregroundColor(.secondary)
                 }
                 Spacer()
                 Image(systemName: isGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .foregroundColor(isGranted ? .green : .orange)
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .background(Color(.secondarySystemGroupedBackground).opacity(0.6))
+            .cornerRadius(10)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableRowButtonStyle())
     }
 }
 

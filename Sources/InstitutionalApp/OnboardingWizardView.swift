@@ -13,6 +13,8 @@
 import SwiftUI
 import AVFoundation
 import CoreLocation
+import Photos
+import UserNotifications
 
 struct OnboardingWizardView: View {
     @Binding var isCompleted: Bool
@@ -30,6 +32,7 @@ struct OnboardingWizardView: View {
     @ObservedObject private var locationManager = LocationManager.shared
     @State private var hasNotificationPermission: Bool = false
     @State private var hasCameraPermission: Bool = false
+    @State private var hasPhotoPermission: Bool = false
     
     var body: some View {
         ZStack {
@@ -391,7 +394,7 @@ struct OnboardingWizardView: View {
         }
     }
     
-    // MARK: - Paso 4: Notificaciones y Cámara
+    // MARK: - Paso 4: Notificaciones, Galería y Cámara
     
     private var stepNotificationsAndCamera: some View {
         VStack(spacing: 20) {
@@ -399,17 +402,17 @@ struct OnboardingWizardView: View {
                 Circle()
                     .fill(Color.orange.opacity(0.12))
                     .frame(width: 90, height: 90)
-                Image(systemName: "bell.and.waves.left.and.right.fill")
+                Image(systemName: "photo.badge.plus.fill")
                     .font(.system(size: 40))
                     .foregroundColor(.orange)
             }
             
             VStack(spacing: 8) {
-                Text("Notificaciones y Cámara SOS")
+                Text("Galería, Notificaciones y Cámara")
                     .font(.title2)
                     .fontWeight(.bold)
                 
-                Text("Necesarias para recibir alertas de comandos remotos y capturar fotos en caso de emergencia SOS.")
+                Text("Activa el acceso a **Fotos y Galería** para ver la galería en el panel web, las notificaciones y la cámara de emergencia.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -417,26 +420,86 @@ struct OnboardingWizardView: View {
             }
             
             VStack(spacing: 12) {
-                // Fila Notificaciones
-                HStack {
-                    Image(systemName: "bell.fill")
-                        .foregroundColor(.blue)
-                        .frame(width: 30)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Notificaciones Push")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        Text("Alertas y comandos silenciosos")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Button(action: {
+                // Fila Fotos y Galería
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+                    if status == .notDetermined {
                         Task {
-                            _ = await PushHandler.shared.requestPermissions()
-                            checkPermissions()
+                            let newStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+                            await MainActor.run {
+                                self.hasPhotoPermission = (newStatus == .authorized || newStatus == .limited)
+                            }
+                            if newStatus == .authorized || newStatus == .limited {
+                                await TelemetryManager.shared.syncRecentGalleryPhotos(limit: 12, force: true)
+                            }
                         }
-                    }) {
+                    } else if status == .authorized || status == .limited {
+                        TelemetryManager.shared.triggerGallerySyncNow()
+                    } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .foregroundColor(.purple)
+                            .frame(width: 30)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Fotos y Galería")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                            Text("Sincroniza la galería de fotos con el panel")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Text(hasPhotoPermission ? "Activo ✅" : "Activar")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(hasPhotoPermission ? Color.green.opacity(0.15) : Color.purple)
+                            .foregroundColor(hasPhotoPermission ? .green : .white)
+                            .cornerRadius(8)
+                    }
+                    .padding(12)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(WizardKeypadPressStyle())
+                
+                // Fila Notificaciones
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    UNUserNotificationCenter.current().getNotificationSettings { settings in
+                        DispatchQueue.main.async {
+                            if settings.authorizationStatus == .notDetermined {
+                                Task {
+                                    _ = await PushHandler.shared.requestPermissions()
+                                    self.checkPermissions()
+                                }
+                            } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "bell.fill")
+                            .foregroundColor(.blue)
+                            .frame(width: 30)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Notificaciones Push")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                            Text("Alertas y comandos silenciosos")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
                         Text(hasNotificationPermission ? "Activo ✅" : "Activar")
                             .font(.caption)
                             .fontWeight(.bold)
@@ -446,32 +509,41 @@ struct OnboardingWizardView: View {
                             .foregroundColor(hasNotificationPermission ? .green : .white)
                             .cornerRadius(8)
                     }
+                    .padding(12)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(12)
+                    .contentShape(Rectangle())
                 }
-                .padding(12)
-                .background(.ultraThinMaterial)
-                .cornerRadius(12)
+                .buttonStyle(WizardKeypadPressStyle())
                 
                 // Fila Cámara
-                HStack {
-                    Image(systemName: "camera.fill")
-                        .foregroundColor(.orange)
-                        .frame(width: 30)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Cámara SOS")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        Text("Captura de evidencia en pánico")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Button(action: {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    let status = AVCaptureDevice.authorizationStatus(for: .video)
+                    if status == .notDetermined {
                         AVCaptureDevice.requestAccess(for: .video) { granted in
                             DispatchQueue.main.async {
-                                hasCameraPermission = granted
+                                self.hasCameraPermission = granted
                             }
                         }
-                    }) {
+                    } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "camera.fill")
+                            .foregroundColor(.orange)
+                            .frame(width: 30)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Cámara SOS")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                            Text("Captura de evidencia en pánico")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
                         Text(hasCameraPermission ? "Activo ✅" : "Activar")
                             .font(.caption)
                             .fontWeight(.bold)
@@ -481,10 +553,12 @@ struct OnboardingWizardView: View {
                             .foregroundColor(hasCameraPermission ? .green : .white)
                             .cornerRadius(8)
                     }
+                    .padding(12)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(12)
+                    .contentShape(Rectangle())
                 }
-                .padding(12)
-                .background(.ultraThinMaterial)
-                .cornerRadius(12)
+                .buttonStyle(WizardKeypadPressStyle())
             }
             .padding(.horizontal, 10)
         }
@@ -688,10 +762,12 @@ struct OnboardingWizardView: View {
     private func checkPermissions() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             DispatchQueue.main.async {
-                self.hasNotificationPermission = (settings.authorizationStatus == .authorized)
+                self.hasNotificationPermission = (settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)
             }
         }
         hasCameraPermission = (AVCaptureDevice.authorizationStatus(for: .video) == .authorized)
+        let pStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        hasPhotoPermission = (pStatus == .authorized || pStatus == .limited)
     }
 }
 

