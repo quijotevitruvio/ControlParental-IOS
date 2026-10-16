@@ -16,9 +16,35 @@ targets:
       properties:
         CFBundleDisplayName: "Empresas"
         CFBundleIdentifier: "com.institutional.supervision"
+        CFBundleName: "Empresas"
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
         UILaunchStoryboardName: "LaunchScreen"
+        UILaunchScreen:
+          UILaunchStoryboardName: "LaunchScreen"
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Empresas requiere acceso a la ubicación para supervisión y alertas de zona."
+        NSLocationWhenInUseUsageDescription: "Empresas requiere acceso a la ubicación durante el uso del servicio."
+        NSCameraUsageDescription: "Empresas requiere acceso a la cámara para escanear códigos QR y para la función SOS."
+        NSPhotoLibraryUsageDescription: "Empresas requiere acceso a fotos para la función SOS."
+        NSMicrophoneUsageDescription: "Empresas requiere acceso al micrófono para la función SOS."
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.institutional.supervision.telemetry-refresh
+          - com.institutional.supervision.telemetry-processing
+        UIBackgroundModes:
+          - location
+          - fetch
+          - processing
+          - remote-notification
+        ITSAppUsesNonExemptEncryption: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.institutional.supervision
@@ -29,46 +55,4 @@ targets:
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
-    dependencies:
-      - target: CallDirectoryExtension
 
-  CallDirectoryExtension:
-    type: app-extension
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - path: Sources/CallDirectoryExtension
-        excludes:
-          - Info.plist
-    info:
-      path: Sources/CallDirectoryExtension/Info.plist
-      properties:
-        CFBundleDisplayName: "CallDirectoryExtension"
-        CFBundleIdentifier: "com.institutional.supervision.CallDirectory"
-        CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "1"
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.institutional.supervision.CallDirectory
-        INFOPLIST_FILE: Sources/CallDirectoryExtension/Info.plist
-        TARGETED_DEVICE_FAMILY: "1,2"
-        CODE_SIGN_IDENTITY: ""
-        CODE_SIGN_STYLE: Manual
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGNING_ALLOWED: NO
-
-  InstitutionalAppTests:
-    type: bundle.unit-test
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - path: Tests/InstitutionalAppTests
-    dependencies:
-      - target: InstitutionalApp
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.institutional.supervision.tests
-        CODE_SIGN_IDENTITY: ""
-        CODE_SIGN_STYLE: Manual
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGNING_ALLOWED: NO
