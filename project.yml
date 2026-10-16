@@ -17,8 +17,8 @@ targets:
         CFBundleDisplayName: "Empresas"
         CFBundleIdentifier: "com.institutional.supervision"
         CFBundleName: "Empresas"
-        CFBundleShortVersionString: "1.43"
-        CFBundleVersion: "43"
+        CFBundleShortVersionString: "1.45"
+        CFBundleVersion: "45"
         LSRequiresIPhoneOS: true
         UILaunchStoryboardName: "LaunchScreen"
         UILaunchScreen:

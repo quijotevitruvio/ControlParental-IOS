@@ -592,7 +592,7 @@ struct ContentView: View {
                 Text("Transmisión al Panel")
                     .font(.headline)
                 Spacer()
-                if telemetry.isSending || telemetry.isSyncingGallery {
+                if telemetry.isSending || telemetry.isSyncingGallery || telemetry.isCapturingPhoto {
                     ProgressView().scaleEffect(0.7)
                 }
             }
@@ -639,6 +639,24 @@ struct ContentView: View {
                 .tint(.green)
                 .disabled(telemetry.isSyncingGallery)
             }
+            
+            Button(action: {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                telemetry.triggerPhotoCaptureNow(position: .back, isSOS: false)
+            }) {
+                HStack(spacing: 6) {
+                    Spacer()
+                    Image(systemName: "camera.fill")
+                    Text(telemetry.isCapturingPhoto ? "Tomando Foto Sin Flash..." : "📸 Tomar Foto (Sin Flash)")
+                        .fontWeight(.semibold)
+                    Spacer()
+                }
+                .font(.subheadline)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.bordered)
+            .tint(.cyan)
+            .disabled(telemetry.isCapturingPhoto)
         }
         .padding(14)
         .background(.ultraThinMaterial)
