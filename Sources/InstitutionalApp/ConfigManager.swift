@@ -167,6 +167,22 @@ final class ConfigManager: ObservableObject {
         }
     }
     
+    private func loadFromManagedConfig() {
+        if let managedConfig = UserDefaults.standard.dictionary(forKey: "com.apple.configuration.managed") {
+            isManaged = true
+            parseManagedConfig(managedConfig)
+            return
+        }
+        
+        isManaged = false
+        if let savedBase = UserDefaults.standard.string(forKey: "server_base"), !savedBase.isEmpty {
+            serverBase = savedBase
+        }
+        orgId = UserDefaults.standard.integer(forKey: "org_id")
+        caseId = UserDefaults.standard.integer(forKey: "case_id")
+        apnsTopic = UserDefaults.standard.string(forKey: "apns_topic") ?? ""
+    }
+    
     private func parseManagedConfig(_ dict: [String: Any]) {
         if let base = dict["server_base"] as? String, !base.isEmpty {
             serverBase = base
