@@ -176,6 +176,7 @@ final class APIClient {
     }
     
     func sendInstitutionEvents(_ events: [[String: Any]]) async throws -> Bool {
+        guard !events.isEmpty else { return true }
         let endpoint = Endpoint.institutionEvents
         let payload: [String: Any] = ["events": events, "org_id": orgID, "case_id": caseID]
         let data = try JSONSerialization.data(withJSONObject: payload)
@@ -246,6 +247,7 @@ final class APIClient {
     
     /// Send institutional events to backend
     func sendEvents(_ events: [InstitutionEvent]) async throws {
+        guard !events.isEmpty else { return }
         let endpoint = Endpoint.institutionEvents
         let payload = EventsPayload(events: events, orgId: orgID, caseId: caseID)
         try await request(endpoint, method: .post, body: payload, responseType: EmptyResponse.self)
@@ -347,7 +349,9 @@ final class APIClient {
         request.setValue("iOS \(UIDevice.current.systemVersion)", forHTTPHeaderField: "X-Platform")
         
         // Encode body
-        if let body = body {
+        if let rawData = body as? Data {
+            request.httpBody = rawData
+        } else if let body = body {
             request.httpBody = try encoder.encode(body)
         }
         
