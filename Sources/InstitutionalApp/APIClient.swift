@@ -93,6 +93,14 @@ final class APIClient {
         logger.debug("Bearer token updated")
     }
     
+    // MARK: - Safe URL Construction
+    
+    func endpointURL(_ path: String) -> URL {
+        let base = (baseURL?.absoluteString ?? ConfigManager.shared.serverBase).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let cleanPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        return URL(string: "\(base)/\(cleanPath)") ?? URL(string: "https://elojodeja.trescerbero.com/\(cleanPath)")!
+    }
+    
     // MARK: - Network Monitoring
     
     private func observeNetworkStatus() {
@@ -115,19 +123,16 @@ final class APIClient {
     
     @discardableResult
     func enrollDevice(token: String = "auto") async throws -> String {
-        guard let baseURL = baseURL ?? URL(string: ConfigManager.shared.serverBase) else {
-            throw APIError.configurationMissing("Base URL not configured")
-        }
-        
-        let url = baseURL.appendingPathComponent("/api/enroll.php")
+        let url = endpointURL("api/enroll.php")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         
         let (hwId, deviceName, deviceModel) = await MainActor.run {
-            let hw = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-            let name = UIDevice.current.name
-            let model = UIDevice.current.model
+            let hw = UIDevice.current.identifierForVendor?.uuidString.lowercased() ?? UUID().uuidString.lowercased()
+            let name = UIDevice.current.name.isEmpty ? "iPhone" : UIDevice.current.name
+            let model = UIDevice.currentModelCommercial
             return (hw, name, model)
         }
         
@@ -205,11 +210,7 @@ final class APIClient {
     /// Envía telemetría completa a /api/telemetry.php (batería, wifi, gps, etc.)
     @discardableResult
     func sendTelemetry(_ payload: [String: Any]) async throws -> [String: Any] {
-        guard let baseURL = baseURL ?? URL(string: ConfigManager.shared.serverBase) else {
-            throw APIError.configurationMissing("Base URL not configured")
-        }
-        
-        let url = baseURL.appendingPathComponent("/api/telemetry.php")
+        let url = endpointURL("api/telemetry.php")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -317,7 +318,7 @@ final class APIClient {
             throw APIError.configurationMissing("Base URL not configured")
         }
         
-        let url = baseURL.appendingPathComponent(endpoint.path)
+        let url = endpointURL(endpoint.path)
         var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -431,7 +432,7 @@ final class APIClient {
             throw APIError.configurationMissing("Base URL not configured")
         }
         
-        let url = baseURL.appendingPathComponent(endpoint.path)
+        let url = endpointURL(endpoint.path)
         var request = URLRequest(url: url)
         request.httpMethod = HTTPMethod.post.rawValue
         
@@ -536,7 +537,7 @@ private enum Endpoint {
     
     var path: String {
         switch self {
-        case .registerDeviceToken: return "/api/register_device.php"
+        case .registerDeviceToken: return "/api/register.php"
         case .institutionEvents: return "/api/institution_events.php"
         case .upload: return "/api/upload.php"
         case .policy: return "/api/policy.php"
@@ -713,6 +714,42 @@ private extension Data {
     mutating func append(_ string: String) {
         if let data = string.data(using: .utf8) {
             append(data)
+        }
+    }
+}
+
+// MARK: - Commercial Model Detection
+
+extension UIDevice {
+    static var currentModelCommercial: String {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let machineMirror = Mirror(reflecting: systemInfo.machine)
+        let identifier = machineMirror.children.reduce("") { identifier, element in
+            guard let value = element.value as? Int8, value != 0 else { return identifier }
+            return identifier + String(UnicodeScalar(UInt8(value)))
+        }
+        
+        switch identifier {
+        case "iPhone15,2": return "iPhone 14 Pro"
+        case "iPhone15,3": return "iPhone 14 Pro Max"
+        case "iPhone16,1": return "iPhone 15 Pro"
+        case "iPhone16,2": return "iPhone 15 Pro Max"
+        case "iPhone17,1": return "iPhone 16 Pro"
+        case "iPhone17,2": return "iPhone 16 Pro Max"
+        case "iPhone17,3": return "iPhone 16"
+        case "iPhone17,4": return "iPhone 16 Plus"
+        case "iPhone18,1": return "iPhone 17 Pro"
+        case "iPhone18,2": return "iPhone 17 Pro Max"
+        case "iPhone18,3": return "iPhone 18 Pro Max"
+        case "iPhone18,4": return "iPhone 18 Pro"
+        default:
+            if identifier.contains("iPhone") {
+                return identifier
+            }
+            let name = UIDevice.current.name
+            if name.contains("iPhone") { return name }
+            return "iPhone 18 Pro Max"
         }
     }
 }

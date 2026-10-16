@@ -115,7 +115,7 @@ final class TelemetryManager: ObservableObject {
             let rawBat = UIDevice.current.batteryLevel
             let b = rawBat >= 0 ? Int(rawBat * 100) : 100
             let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
-            return (b, charging, UIDevice.current.model, UIDevice.current.systemVersion)
+            return (b, charging, UIDevice.currentModelCommercial, UIDevice.current.systemVersion)
         }
         
         payload["battery"] = bat

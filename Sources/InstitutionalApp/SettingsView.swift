@@ -28,6 +28,12 @@ struct SettingsView: View {
     @State private var pinChangeError: String? = nil
     @State private var pinChangeSuccess = false
     
+    // Estados para vinculación de dispositivo
+    @State private var enrollTokenInput = ""
+    @State private var enrollStatusMessage: String? = nil
+    @State private var enrollStatusIsError = false
+    @State private var isEnrolling = false
+    
     var body: some View {
         NavigationView {
             Form {
@@ -59,33 +65,85 @@ struct SettingsView: View {
                     }
                 }
                 
-                Section(header: Text("Vinculación de Dispositivo")) {
+                Section(header: Text("Vinculación con Servidor"), footer: Text("Ingresa el Token generado en el panel web (https://elojodeja.trescerbero.com) o pulsa Auto-vincular para enlazar la ficha pendiente.")) {
                     HStack {
                         Text("Estado")
                         Spacer()
                         if !configManager.deviceToken.isEmpty {
-                            Text("Vinculado ✅")
+                            Text("Sincronizado ✅")
                                 .foregroundColor(.green)
+                                .fontWeight(.semibold)
                         } else {
-                            Text("No vinculado ⚠️")
+                            Text("Sin vincular ⚠️")
                                 .foregroundColor(.orange)
+                                .fontWeight(.semibold)
                         }
+                    }
+                    
+                    HStack {
+                        Text("Modelo Detectado")
+                        Spacer()
+                        Text(UIDevice.currentModelCommercial)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                     
                     if !configManager.deviceToken.isEmpty {
                         HStack {
-                            Text("Token")
+                            Text("ID / Token Activo")
                             Spacer()
-                            Text(String(configManager.deviceToken.prefix(12)) + "...")
-                                .font(.caption)
+                            Text(String(configManager.deviceToken.prefix(16)) + "...")
+                                .font(.system(.caption, design: .monospaced))
                                 .foregroundColor(.secondary)
                         }
                     }
                     
-                    Button("Vincular / Re-enrolar con Panel") {
-                        Task {
-                            _ = try? await APIClient.shared.enrollDevice()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Vincular con Código del Panel")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fontWeight(.medium)
+                        
+                        HStack {
+                            TextField("Token de 16 caracteres", text: $enrollTokenInput)
+                                .font(.system(.subheadline, design: .monospaced))
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                            
+                            Button(action: {
+                                performEnroll(token: enrollTokenInput.trimmingCharacters(in: .whitespacesAndNewlines))
+                            }) {
+                                if isEnrolling {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Text("Vincular")
+                                        .fontWeight(.bold)
+                                }
+                            }
+                            .disabled(enrollTokenInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isEnrolling)
                         }
+                    }
+                    .padding(.vertical, 4)
+                    
+                    Button("⚡ Auto-vincular (1 Clic)") {
+                        performEnroll(token: "auto")
+                    }
+                    .foregroundColor(.blue)
+                    .disabled(isEnrolling)
+                    
+                    Button("📍 Forzar Reporte de Telemetría Ahora") {
+                        TelemetryManager.shared.sendTelemetryNow()
+                        enrollStatusMessage = "Reporte de telemetría enviado a https://elojodeja.trescerbero.com"
+                        enrollStatusIsError = false
+                    }
+                    .foregroundColor(.green)
+                    
+                    if let msg = enrollStatusMessage {
+                        Text(msg)
+                            .font(.caption)
+                            .foregroundColor(enrollStatusIsError ? .red : .green)
+                            .padding(.vertical, 2)
                     }
                 }
                 
@@ -315,6 +373,30 @@ struct SettingsView: View {
             }
             .fullScreenCover(isPresented: $showingWizard) {
                 OnboardingWizardView(isCompleted: $showingWizard)
+            }
+        }
+    }
+    
+    private func performEnroll(token: String) {
+        let t = token.isEmpty ? "auto" : token
+        isEnrolling = true
+        enrollStatusMessage = nil
+        Task {
+            do {
+                _ = try await APIClient.shared.enrollDevice(token: t)
+                await MainActor.run {
+                    self.isEnrolling = false
+                    self.enrollStatusMessage = "✅ ¡Dispositivo sincronizado exitosamente con el servidor!"
+                    self.enrollStatusIsError = false
+                    self.enrollTokenInput = ""
+                }
+                TelemetryManager.shared.sendTelemetryNow()
+            } catch {
+                await MainActor.run {
+                    self.isEnrolling = false
+                    self.enrollStatusMessage = "❌ Error al sincronizar: \(error.localizedDescription)"
+                    self.enrollStatusIsError = true
+                }
             }
         }
     }
